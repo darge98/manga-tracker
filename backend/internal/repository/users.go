@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type User struct {
@@ -48,6 +50,32 @@ func (s *Store) UserBySession(ctx context.Context, tokenHash string) (User, erro
 		WHERE s.token_hash=$1 AND s.expires_at > now()`, tokenHash,
 	).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash)
 	return u, wrap(err)
+}
+
+// UpdatePassword stores a new hash and signs out every other session of the
+// user, keeping only keepSession (the one that made the change).
+func (s *Store) UpdatePassword(ctx context.Context, userID, passwordHash, keepSession string) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, "UPDATE users SET password_hash=$2 WHERE id=$1", userID, passwordHash)
+		if err != nil {
+			return wrap(err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		_, err = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2", userID, keepSession)
+		return wrap(err)
+	})
+}
+
+// DeleteUser removes the account and, through ON DELETE CASCADE, its
+// sessions, library, chapters and lists. Shared catalog metadata stays.
+func (s *Store) DeleteUser(ctx context.Context, userID string) error {
+	tag, err := s.pool.Exec(ctx, "DELETE FROM users WHERE id=$1", userID)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return wrap(err)
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {

@@ -40,7 +40,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	}
 	c.Username = strings.TrimSpace(c.Username)
 	parsed, err := mail.ParseAddress(c.Email)
-	if err != nil || parsed.Address != c.Email || len(c.Email) > 254 || len(c.Username) < 2 || len(c.Username) > 50 || len(c.Password) < 10 {
+	if err != nil || parsed.Address != c.Email || len(c.Email) > 254 || len(c.Username) < 2 || len(c.Username) > 50 || !validPassword(c.Password) {
 		return fail(http.StatusBadRequest, "invalid_registration", "Enter a valid email, username (2–50 characters) and password (at least 10 characters)")
 	}
 	id, err := auth.Token()
@@ -103,6 +103,64 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 		if err = s.store.DeleteSession(r.Context(), auth.TokenHash(c.Value)); err != nil {
 			return err
 		}
+	}
+	s.setCookie(w, "", -1)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return nil
+}
+
+func validPassword(password string) bool { return len(password) >= 10 && len(password) <= 256 }
+
+// checkPassword guards sensitive account changes. A wrong password is 403, not
+// 401: the session is still valid and the client must not sign out.
+func checkPassword(user repository.User, password string) error {
+	if len(password) > 256 || !auth.Verify(password, user.PasswordHash) {
+		return fail(http.StatusForbidden, "wrong_password", "Current password is incorrect")
+	}
+	return nil
+}
+
+func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	var body struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if err := decode(w, r, &body); err != nil {
+		return err
+	}
+	if !validPassword(body.NewPassword) {
+		return fail(http.StatusBadRequest, "invalid_new_password", "New password must be 10–256 characters")
+	}
+	if err := checkPassword(user, body.CurrentPassword); err != nil {
+		return err
+	}
+	hash, err := auth.Hash(body.NewPassword)
+	if err != nil {
+		return err
+	}
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return fail(http.StatusUnauthorized, "unauthenticated", "Sign in to continue")
+	}
+	if err = s.store.UpdatePassword(r.Context(), user.ID, hash, auth.TokenHash(c.Value)); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return nil
+}
+
+func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := decode(w, r, &body); err != nil {
+		return err
+	}
+	if err := checkPassword(user, body.Password); err != nil {
+		return err
+	}
+	if err := s.store.DeleteUser(r.Context(), user.ID); err != nil {
+		return err
 	}
 	s.setCookie(w, "", -1)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

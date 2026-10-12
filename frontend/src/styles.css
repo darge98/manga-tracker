@@ -866,6 +866,17 @@ input + label {
   font-size: 10px;
   padding: 10px 0;
 }
+.account-page {
+  max-width: 560px;
+}
+.account-page small {
+  display: block;
+  margin: 8px 0 16px;
+  color: var(--muted);
+}
+.danger-zone {
+  border-color: #e3c4bf;
+}
 .danger {
   color: #94382f;
   margin-left: auto;

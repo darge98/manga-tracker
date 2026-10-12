@@ -1,0 +1,89 @@
+<div class="page-heading">
+  <p class="eyebrow">IL TUO ACCOUNT</p>
+  <h1>Account e sicurezza.</h1>
+  <p>{{ api.user()?.username }} · {{ api.user()?.email }}</p>
+</div>
+<div class="account-page">
+  <form class="list-form" (ngSubmit)="changePassword()" #passwordForm="ngForm">
+    <h2>Cambia password</h2>
+    <label for="current-password">Password attuale</label
+    ><input
+      id="current-password"
+      name="currentPassword"
+      type="password"
+      [(ngModel)]="currentPassword"
+      required
+      autocomplete="current-password"
+    /><label for="new-password">Nuova password</label
+    ><input
+      id="new-password"
+      name="newPassword"
+      type="password"
+      [(ngModel)]="newPassword"
+      required
+      minlength="10"
+      maxlength="256"
+      autocomplete="new-password"
+    /><label for="confirm-password">Ripeti la nuova password</label
+    ><input
+      id="confirm-password"
+      name="confirmPassword"
+      type="password"
+      [(ngModel)]="confirmPassword"
+      required
+      autocomplete="new-password"
+    />
+    <small
+      >Almeno 10 caratteri. Gli altri dispositivi dovranno accedere di
+      nuovo.</small
+    >
+    @if (section() === "password") {
+      @if (error()) {
+        <p class="notice error" role="alert">{{ error() }}</p>
+      }
+      @if (message()) {
+        <p class="notice success" role="status">{{ message() }}</p>
+      }
+    }
+    <div class="actions">
+      <button
+        class="button primary"
+        [disabled]="busy() || passwordForm.invalid"
+      >
+        Aggiorna password
+      </button>
+    </div>
+  </form>
+
+  <form
+    class="list-form danger-zone"
+    (ngSubmit)="deleteAccount()"
+    #deleteForm="ngForm"
+  >
+    <h2>Elimina account</h2>
+    <p>
+      Elimina definitivamente account, diario dei capitoli, preferiti e liste. I
+      link delle tue liste pubbliche smetteranno di funzionare.
+    </p>
+    <label for="delete-password">Password</label
+    ><input
+      id="delete-password"
+      name="deletePassword"
+      type="password"
+      [(ngModel)]="deletePassword"
+      required
+      autocomplete="current-password"
+    />
+    @if (section() === "delete" && error()) {
+      <p class="notice error" role="alert">{{ error() }}</p>
+    }
+    <div class="actions">
+      <button
+        class="button secondary danger"
+        [disabled]="busy() || deleteForm.invalid"
+      >
+        Elimina definitivamente
+      </button>
+    </div>
+  </form>
+</div>

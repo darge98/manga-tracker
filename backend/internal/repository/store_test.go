@@ -153,3 +153,48 @@ func TestClosedPoolReportsUnavailable(t *testing.T) {
 		t.Fatalf("expected ErrUnavailable, got %v", err)
 	}
 }
+
+func TestDeleteUserCascades(t *testing.T) {
+	t.Parallel()
+	s := testdb.Open(t)
+	ctx := context.Background()
+	seed(t, s, "a", 13)
+	seed(t, s, "b")
+	session := auth.TokenHash("a-session")
+	if err := s.CreateSession(ctx, session, "a", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveChapter(ctx, "a", 13, repository.Chapter{Chapter: "1", Read: true, Notes: "x"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveChapter(ctx, "b", 13, repository.Chapter{Chapter: "1", Read: true}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateList(ctx, repository.List{ID: "list", OwnerID: "a", Name: "Mine", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddListItem(ctx, "list", "a", 13); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(ctx, "a"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("second delete: %v", err)
+	}
+	if _, err := s.UserBySession(ctx, session); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatal("session survived account deletion")
+	}
+	if _, err := s.List(ctx, "list"); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatal("list survived account deletion")
+	}
+	if l, err := s.Library(ctx, "a", 13); err != nil || len(l.Chapters) != 0 {
+		t.Fatalf("chapters survived account deletion: %v %+v", err, l)
+	}
+	if l, err := s.Library(ctx, "b", 13); err != nil || len(l.Chapters) != 1 {
+		t.Fatalf("other user's data was touched: %v %+v", err, l)
+	}
+	if _, err := s.Manga(ctx, 13); err != nil {
+		t.Fatal("shared catalog metadata must stay")
+	}
+}

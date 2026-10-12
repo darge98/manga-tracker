@@ -39,7 +39,15 @@ cd backend
 TEST_DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:5432/DB?sslmode=disable' go test -race ./...
 ```
 
-Senza `TEST_DATABASE_URL` i test che usano il database vengono saltati, e il motivo è indicato nell'output.
+Senza `TEST_DATABASE_URL` i test che usano il database vengono saltati, e il motivo è indicato nell'output; in CI (`CI=true`) invece falliscono.
+
+### CI
+
+`.github/workflows/ci.yml` esegue su ogni push su `main` e su ogni pull request:
+
+- **backend**: `gofmt`, `go vet`, `go test -race` con un servizio PostgreSQL 18;
+- **frontend**: `npm ci`, `check`, test e build con la versione di Node in `.nvmrc`;
+- **stack**: valida i file Compose, costruisce e avvia lo stack con `.env.example`, controlla `/api/health` e gli header di sicurezza.
 
 ## Architettura
 

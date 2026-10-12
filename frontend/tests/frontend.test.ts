@@ -7,12 +7,13 @@ import {
 } from "@angular/core";
 import { ActivatedRoute, convertToParamMap, Router } from "@angular/router";
 import { Subject } from "rxjs";
-import { Api } from "../src/app/core";
+import { Api, ApiError } from "../src/app/core";
 import { Detail } from "../src/app/detail";
 import { Dashboard } from "../src/app/dashboard";
 import { Explore } from "../src/app/explore";
 import { Lists } from "../src/app/lists";
 import { Auth } from "../src/app/auth";
+import { Account } from "../src/app/account";
 import { requireUser } from "../src/app/app.routes";
 import { StatusPipe } from "../src/app/status.pipe";
 const manga = (id: number) => ({
@@ -467,4 +468,64 @@ test("publishing status is shown in Italian", () => {
   assert.equal(pipe.transform("Publishing"), "In corso");
   assert.equal(pipe.transform("Finished"), "Concluso");
   assert.equal(pipe.transform("Something new"), "Something new");
+});
+
+test("account: password change checks confirmation and reports the result", async () => {
+  const f = fixture(Account);
+  const calls: string[] = [];
+  f.api.request = async (p: string, method = "GET", body?: any) => {
+    calls.push(method + " " + p + " " + JSON.stringify(body));
+    if (body.currentPassword === "wrong")
+      throw new ApiError(403, "wrong_password");
+    return { ok: true };
+  };
+  f.component.currentPassword = "old-password";
+  f.component.newPassword = "new-password-1";
+  f.component.confirmPassword = "different-password";
+  await f.component.changePassword();
+  assert.equal(calls.length, 0);
+  assert.equal(f.component.error(), "Le due password nuove non coincidono.");
+
+  f.component.currentPassword = "wrong";
+  f.component.confirmPassword = "new-password-1";
+  await f.component.changePassword();
+  assert.equal(f.component.error(), "La password attuale non è corretta.");
+  assert.equal(f.api.user()?.id, "1"); // a wrong password keeps the user signed in
+
+  f.component.currentPassword = "old-password";
+  await f.component.changePassword();
+  assert.equal(
+    calls.at(-1),
+    'PUT /auth/password {"currentPassword":"old-password","newPassword":"new-password-1"}',
+  );
+  assert.equal(f.component.error(), "");
+  assert.match(f.component.message(), /Password aggiornata/);
+  assert.equal(f.component.newPassword, "");
+  f.injector.destroy();
+});
+
+test("account: deletion asks for confirmation, then signs out", async () => {
+  const f = fixture(Account);
+  let call = "";
+  let navigated = "";
+  f.api.request = async (p: string, method = "GET", body?: any) => {
+    call = method + " " + p + " " + JSON.stringify(body);
+    return { ok: true };
+  };
+  f.component.router.navigateByUrl = async (url: string) => {
+    navigated = url;
+    return true;
+  };
+  f.component.deletePassword = "password-123";
+  const originalConfirm = globalThis.confirm;
+  globalThis.confirm = () => false;
+  await f.component.deleteAccount();
+  assert.equal(call, "");
+  globalThis.confirm = () => true;
+  await f.component.deleteAccount();
+  globalThis.confirm = originalConfirm;
+  assert.equal(call, 'DELETE /auth/account {"password":"password-123"}');
+  assert.equal(f.api.user(), null);
+  assert.equal(navigated, "/");
+  f.injector.destroy();
 });

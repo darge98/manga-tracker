@@ -21,6 +21,10 @@ func URL(t testing.TB) string {
 	t.Helper()
 	base := os.Getenv("TEST_DATABASE_URL")
 	if base == "" {
+		// In CI a missing database is a configuration error, not a reason to skip.
+		if os.Getenv("CI") != "" {
+			t.Fatal("TEST_DATABASE_URL must be set in CI")
+		}
 		t.Skip("TEST_DATABASE_URL not set; run: docker compose --profile test run --rm --build backend-test")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -7,6 +7,8 @@ const messages: Record<string, string> = {
   invalid_registration:
     "Inserisci un'email valida, un nome utente di 2–50 caratteri e una password di almeno 10 caratteri.",
   password_too_long: "La password è troppo lunga.",
+  wrong_password: "La password attuale non è corretta.",
+  invalid_new_password: "La nuova password deve avere da 10 a 256 caratteri.",
   email_taken: "Esiste già un account con questa email.",
   rate_limited: "Troppe richieste. Riprova tra un minuto.",
   search_too_long: "La ricerca è troppo lunga.",

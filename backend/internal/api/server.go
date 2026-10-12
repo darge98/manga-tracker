@@ -60,6 +60,8 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/auth/login", s.limit(s.authLimit, s.login))
 	s.mux.Handle("GET /api/auth/me", s.authed(s.me))
 	s.mux.Handle("POST /api/auth/logout", s.handle(s.logout))
+	s.mux.Handle("PUT /api/auth/password", s.limit(s.authLimit, s.authedFunc(s.changePassword)))
+	s.mux.Handle("DELETE /api/auth/account", s.limit(s.authLimit, s.authedFunc(s.deleteAccount)))
 
 	s.mux.Handle("GET /api/manga", s.limit(s.browse, s.search))
 	s.mux.Handle("GET /api/manga/popular", s.limit(s.browse, s.popular))
@@ -148,14 +150,17 @@ func (s *Server) handle(fn handlerFunc) http.Handler {
 	})
 }
 
-func (s *Server) authed(fn authedFunc) http.Handler {
-	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
+func (s *Server) authed(fn authedFunc) http.Handler { return s.handle(s.authedFunc(fn)) }
+
+// authedFunc resolves the signed-in user; it composes with limit.
+func (s *Server) authedFunc(fn authedFunc) handlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
 		user, err := s.currentUser(r)
 		if err != nil {
 			return err
 		}
 		return fn(w, r, user)
-	})
+	}
 }
 
 func (s *Server) limit(limiter *rateLimiter, fn handlerFunc) http.Handler {

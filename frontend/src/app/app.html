@@ -47,6 +47,7 @@
         <div class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</div>
         <div>
           <strong>{{ user.username }}</strong
+          ><a class="text-button" routerLink="/account">Account e sicurezza</a
           ><button class="text-button" (click)="logout()">
             Esci dall’account
           </button>

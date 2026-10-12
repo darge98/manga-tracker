@@ -371,3 +371,50 @@ func TestSearchRejectionAndEmptyQuery(t *testing.T) {
 		t.Fatal("empty search should return popular manga")
 	}
 }
+
+func TestChangePassword(t *testing.T) {
+	t.Parallel()
+	s := newServer(testdb.Open(t), &testCatalog{})
+	first := register(t, s, "Alice") // password-Alice
+	second := request(t, s, "POST", "auth/login", `{"email":"alice@example.test","password":"password-Alice"}`, nil, 200).Result().Cookies()[0]
+
+	w := request(t, s, "PUT", "auth/password", `{"currentPassword":"wrong-password","newPassword":"new-password-123"}`, first, 403)
+	if !strings.Contains(w.Body.String(), `"code":"wrong_password"`) {
+		t.Fatalf("wrong current password: %s", w.Body.String())
+	}
+	request(t, s, "GET", "auth/me", "", first, 200) // a wrong password must not end the session
+	request(t, s, "PUT", "auth/password", `{"currentPassword":"password-Alice","newPassword":"short"}`, first, 400)
+	request(t, s, "PUT", "auth/password", `{"currentPassword":"password-Alice","newPassword":"new-password-123"}`, nil, 401)
+
+	request(t, s, "PUT", "auth/password", `{"currentPassword":"password-Alice","newPassword":"new-password-123"}`, first, 200)
+	request(t, s, "GET", "auth/me", "", first, 200)  // the session that changed it stays
+	request(t, s, "GET", "auth/me", "", second, 401) // every other session is closed
+	request(t, s, "POST", "auth/login", `{"email":"alice@example.test","password":"password-Alice"}`, nil, 401)
+	request(t, s, "POST", "auth/login", `{"email":"alice@example.test","password":"new-password-123"}`, nil, 200)
+}
+
+func TestDeleteAccount(t *testing.T) {
+	t.Parallel()
+	s := newServer(testdb.Open(t), &testCatalog{})
+	alice, bob := register(t, s, "Alice"), register(t, s, "Bob")
+	request(t, s, "PUT", "library/13/chapters/1", `{"read":true,"notes":"Alice note"}`, alice, 200)
+	request(t, s, "PUT", "library/13/chapters/1", `{"read":true,"notes":"Bob note"}`, bob, 200)
+	id := createList(t, s, alice, `{"name":"Shared","description":"","isPublic":true}`)
+	request(t, s, "PUT", "lists/"+id+"/items/13", `{}`, alice, 200)
+	request(t, s, "GET", "public/lists/"+id, "", nil, 200)
+
+	request(t, s, "DELETE", "auth/account", `{"password":"wrong-password"}`, alice, 403)
+	request(t, s, "GET", "auth/me", "", alice, 200)
+
+	w := request(t, s, "DELETE", "auth/account", `{"password":"password-Alice"}`, alice, 200)
+	if c := w.Result().Cookies(); len(c) != 1 || c[0].MaxAge >= 0 {
+		t.Fatal("deleting the account must clear the session cookie")
+	}
+	request(t, s, "GET", "auth/me", "", alice, 401)
+	request(t, s, "GET", "public/lists/"+id, "", nil, 404)
+	request(t, s, "POST", "auth/login", `{"email":"alice@example.test","password":"password-Alice"}`, nil, 401)
+	if !strings.Contains(request(t, s, "GET", "library/13", "", bob, 200).Body.String(), "Bob note") {
+		t.Fatal("deleting one account must not touch other users")
+	}
+	register(t, s, "Alice") // the email can be used again
+}

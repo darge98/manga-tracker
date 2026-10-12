@@ -40,6 +40,11 @@ export const routes: Routes = [
     canActivate: [ready],
     loadComponent: () => import("./detail").then((m) => m.Detail),
   },
+  {
+    path: "account",
+    canActivate: [requireUser],
+    loadComponent: () => import("./account").then((m) => m.Account),
+  },
   { path: "auth", loadComponent: () => import("./auth").then((m) => m.Auth) },
   {
     path: "lists",
