@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"manga-track/backend/internal/auth"
 	"manga-track/backend/internal/provider"
+	"manga-track/backend/internal/recommend"
 	"manga-track/backend/internal/repository"
 	"manga-track/backend/internal/testdb"
 	"net/http"
@@ -18,7 +19,17 @@ import (
 
 const testOrigin = "http://localhost:4200"
 
-type testCatalog struct{ offline bool }
+type testCatalog struct {
+	offline bool
+	recs    map[int][]provider.Recommendation
+}
+
+func (c *testCatalog) Recommendations(_ context.Context, id int) ([]provider.Recommendation, error) {
+	if c.offline {
+		return nil, provider.ErrUnavailable
+	}
+	return c.recs[id], nil
+}
 
 func (c *testCatalog) Search(ctx context.Context, _ string, p int) (provider.Page, error) {
 	return c.Popular(ctx, p)
@@ -520,4 +531,53 @@ func TestLimitsAndWriteRateLimit(t *testing.T) {
 		t.Fatal("writes beyond the limit must be rejected")
 	}
 	request(t, s, "GET", "library/13", "", alice, 200) // reads are not limited
+}
+
+func TestRecommendations(t *testing.T) {
+	t.Parallel()
+	card := func(id int, title string) repository.Manga {
+		return repository.Manga{ID: id, Title: title, Genres: []string{"Action"}}
+	}
+	catalog := &testCatalog{recs: map[int][]provider.Recommendation{
+		2:  {{Manga: card(100, "Claymore"), Votes: 43}, {Manga: card(13, "One Piece"), Votes: 5}, {Manga: card(101, "Vagabond"), Votes: 43}},
+		13: {{Manga: card(100, "Claymore"), Votes: 3}},
+	}}
+	s := newServer(testdb.Open(t), catalog)
+	alice := register(t, s, "Alice")
+
+	var empty struct {
+		Items   []recommend.Item `json:"items"`
+		BasedOn int              `json:"basedOn"`
+	}
+	json.Unmarshal(request(t, s, "GET", "recommendations", "", alice, 200).Body.Bytes(), &empty)
+	if len(empty.Items) != 0 || empty.BasedOn != 0 {
+		t.Fatalf("a new reader gets no recommendations: %+v", empty)
+	}
+
+	request(t, s, "PUT", "library/2", `{"favorite":true}`, alice, 200)
+	request(t, s, "PUT", "library/13/chapters/1", `{"read":true,"rating":4}`, alice, 200)
+	request(t, s, "PUT", "library/77", `{"toRead":true}`, alice, 200) // not read: not a seed
+	var got struct {
+		Items          []recommend.Item `json:"items"`
+		BasedOn        int              `json:"basedOn"`
+		CatalogWarning string           `json:"catalogWarning"`
+	}
+	json.Unmarshal(request(t, s, "GET", "recommendations", "", alice, 200).Body.Bytes(), &got)
+	if got.BasedOn != 2 || got.CatalogWarning != "" || len(got.Items) != 2 {
+		t.Fatalf("unexpected recommendations: %+v", got)
+	}
+	// Claymore is suggested from both liked manga, so it ranks first; One Piece
+	// is already in the library, so it is not suggested.
+	if got.Items[0].Manga.ID != 100 || got.Items[0].Because.ID != 2 || got.Items[1].Manga.ID != 101 {
+		t.Fatalf("wrong ranking: %+v", got.Items)
+	}
+	if !strings.Contains(request(t, s, "GET", "recommendations", "", nil, 401).Body.String(), "unauthenticated") {
+		t.Fatal("recommendations require sign-in")
+	}
+
+	catalog.offline = true
+	json.Unmarshal(request(t, s, "GET", "recommendations", "", alice, 200).Body.Bytes(), &got)
+	if got.CatalogWarning == "" || len(got.Items) != 0 {
+		t.Fatalf("offline recommendations must warn: %+v", got)
+	}
 }

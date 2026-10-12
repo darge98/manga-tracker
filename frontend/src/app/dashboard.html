@@ -78,6 +78,62 @@
     </div>
   }
 </section>
+@if (api.user()) {
+  <section>
+    <div class="section-heading">
+      <div>
+        <h2>Recommended for you</h2>
+        <p>Suggested by MyAnimeList readers, based on the manga you liked.</p>
+      </div>
+    </div>
+    @switch (recommendationsState()) {
+      @case ("loading") {
+        <div class="loading" role="status">Finding stories for you…</div>
+      }
+      @case ("error") {
+        <div class="empty compact">
+          <p>
+            Recommendations are unavailable right now. Please try again later.
+          </p>
+        </div>
+      }
+      @case ("ready") {
+        @if (recommendations().length) {
+          <div class="manga-grid">
+            @for (item of recommendations(); track item.manga.id) {
+              <div>
+                <manga-card [manga]="item.manga" />
+                <p class="because">
+                  Because you liked
+                  <a [routerLink]="['/manga', item.because.id]">{{
+                    item.because.title
+                  }}</a>
+                </p>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="empty compact">
+            <h3>
+              {{
+                basedOn()
+                  ? "You're ahead of the recommendations."
+                  : "Tell us what you enjoy."
+              }}
+            </h3>
+            <p>
+              {{
+                basedOn()
+                  ? "Everything suggested for your favorites is already in your library."
+                  : "Mark chapters as read, rate them or add favorites to get recommendations."
+              }}
+            </p>
+          </div>
+        }
+      }
+    }
+  </section>
+}
 <section>
   <div class="section-heading">
     <div>

@@ -38,6 +38,11 @@ export interface RecentRead {
   rating: number | null;
   notes: string;
 }
+export interface Recommendation {
+  manga: Manga;
+  /** The liked manga that contributed most to this suggestion. */
+  because: { id: number; title: string };
+}
 export interface MangaList {
   id: string;
   name: string;

@@ -209,3 +209,37 @@ func TestLeanCatalogMigrationOnOldData(t *testing.T) {
 		t.Fatalf("reference indexes missing: %q %v", indexes, err)
 	}
 }
+
+func TestLibraryStats(t *testing.T) {
+	t.Parallel()
+	s := testdb.Open(t)
+	ctx := context.Background()
+	seed(t, s, "a", "b")
+	on := true
+	four, two := 4, 2
+	if _, err := s.SetLibraryFlags(ctx, "a", manga(1), nil, &on); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []repository.Chapter{{Chapter: "1", Read: true, Rating: &four}, {Chapter: "2", Read: true, Rating: &two}, {Chapter: "3", Notes: "unread"}} {
+		if _, err := s.SaveChapter(ctx, "a", manga(2), c, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.SaveChapter(ctx, "b", manga(3), repository.Chapter{Chapter: "1", Read: true}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := s.LibraryStats(ctx, "a")
+	if err != nil || len(stats) != 2 {
+		t.Fatalf("one row per own library entry: %v %+v", err, stats)
+	}
+	byID := map[int]repository.LibraryStat{}
+	for _, st := range stats {
+		byID[st.MangaID] = st
+	}
+	if f := byID[1]; !f.Favorite || f.AvgRating != nil || f.ReadChapters != 0 || f.Title != "Manga 1" {
+		t.Fatalf("favorite without chapters: %+v", f)
+	}
+	if r := byID[2]; r.AvgRating == nil || *r.AvgRating != 3 || r.ReadChapters != 2 {
+		t.Fatalf("average rating and read count: %+v", r)
+	}
+}

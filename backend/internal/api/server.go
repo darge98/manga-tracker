@@ -73,6 +73,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/manga/{id}", s.limit(s.browse, s.mangaDetail))
 
 	s.mux.Handle("GET /api/dashboard", s.authed(s.dashboard))
+	s.mux.Handle("GET /api/recommendations", s.authed(s.recommendations))
 	s.mux.Handle("GET /api/library", s.authed(s.libraryItems))
 	s.mux.Handle("GET /api/library/{id}", s.authed(s.getLibrary))
 	s.mux.Handle("PUT /api/library/{id}", s.authed(s.setLibraryFlags))

@@ -510,6 +510,11 @@ section + section {
   gap: 12px;
   margin-bottom: 32px;
 }
+.because {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 .search-hint {
   display: block;
   min-height: 1.4em;

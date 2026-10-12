@@ -85,6 +85,14 @@ Clients never send manga metadata (unknown fields are rejected with 400). Metada
 
 **Limits.** Per account: 20,000 chapters, 2,000 library entries, 100 lists and 500 manga per list. Exceeding one returns 403 `limit_reached`; updating existing data is always allowed. Signed-in writes (PUT, POST, PATCH, DELETE) are limited to 120/minute per account (429 `rate_limited`).
 
+### Recommendations
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/recommendations` | `{items:{manga:Manga,because:{id,title}}[],basedOn,catalogWarning}` |
+
+Suggestions come from MyAnimeList user recommendations for the manga the reader liked most. Each library entry is weighted: favorite +3, average chapter rating minus 3 (so 5 adds 2 and 1 subtracts 2), plus up to 1 for read chapters (100 or more). The 5 entries with a positive weight are the seeds; an entry only saved "to read" is not one. A recommended manga scores the sum, over the seeds suggesting it, of seed weight × ln(1 + votes); manga already in the library are excluded, only safe-for-work titles are kept, and the top 12 are returned. `because` names the seed that contributed most; `basedOn` is the number of seeds (0 when the reader has no liked manga yet). Nothing is stored: recommendations come with the cached detail response of each seed, so a seed costs at most one catalog call. If some seeds cannot be fetched the response still returns 200 with `catalogWarning` set.
+
 `recent` contains at most 12 distinct manga entries `{manga,chapter,readAt,rating,notes}`, newest read first. Each manga appears once with its latest reading event; the complete chapter history remains in `/library/:id`. `popular` is a Manga array. `catalogWarning` is an empty string normally, or a provider warning while local history still returns 200. Personal feedback is never included in public lists.
 
 ## Custom lists

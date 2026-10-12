@@ -221,3 +221,31 @@ func TestMALCacheEvictsOneEntryWhenFull(t *testing.T) {
 		t.Fatal("new entry missing")
 	}
 }
+
+func TestMALRecommendationsShareTheDetailCall(t *testing.T) {
+	calls := 0
+	p := newTestMAL(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if !strings.Contains(r.URL.Query().Get("fields"), "recommendations{") {
+			t.Fatal("detail must request recommendations")
+		}
+		node := func(id int, title, en, nsfw string) string {
+			return fmt.Sprintf(`{"node":{"id":%d,"title":%q,"alternative_titles":{"en":%q},"nsfw":%q,"genres":[{"name":"Action"}],"mean":8.5},"num_recommendations":%d}`, id, title, en, nsfw, id)
+		}
+		return respond(200, `{"id":2,"title":"Berserk","recommendations":[`+
+			node(10, "Shingeki no Kyojin", "Attack on Titan", "white")+","+
+			node(11, "Adult title", "", "black")+","+
+			node(12, "Borderline", "", "gray")+`]}`)
+	})
+	m, err := p.Detail(context.Background(), 2)
+	if err != nil || m.Title != "Berserk" {
+		t.Fatal(err)
+	}
+	recs, err := p.Recommendations(context.Background(), 2)
+	if err != nil || calls != 1 {
+		t.Fatalf("recommendations must reuse the cached detail response: %v, %d calls", err, calls)
+	}
+	if len(recs) != 1 || recs[0].Manga.Title != "Attack on Titan" || recs[0].Votes != 10 || *recs[0].Manga.Score != 8.5 || recs[0].Manga.Genres[0] != "Action" {
+		t.Fatalf("only safe-for-work titles, with English titles and card data: %+v", recs)
+	}
+}

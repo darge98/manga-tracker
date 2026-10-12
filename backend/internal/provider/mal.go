@@ -27,6 +27,15 @@ type Catalog interface {
 	Search(context.Context, string, int) (Page, error)
 	Popular(context.Context, int) (Page, error)
 	Detail(context.Context, int) (repository.Manga, error)
+	// Recommendations returns what MyAnimeList users recommend to readers of
+	// the manga, safe-for-work titles only.
+	Recommendations(context.Context, int) ([]Recommendation, error)
+}
+
+// Recommendation is a manga MyAnimeList users suggest, with how many did.
+type Recommendation struct {
+	Manga repository.Manga
+	Votes int
 }
 
 var (
@@ -48,6 +57,9 @@ const (
 	maxQueueWait = 10 * time.Second
 	// fields lists the manga properties requested from MAL; it omits nothing the app shows.
 	fields = "alternative_titles,synopsis,main_picture,num_chapters,status,genres,mean,authors{first_name,last_name}"
+	// The detail request also returns recommendations with full card data,
+	// so the detail page and recommendations share one cached call.
+	detailFields = fields + ",recommendations{alternative_titles,main_picture,num_chapters,status,genres,mean,nsfw}"
 )
 
 type MAL struct {
@@ -193,6 +205,7 @@ type wire struct {
 		Large  string `json:"large"`
 	} `json:"main_picture"`
 	NumChapters int      `json:"num_chapters"` // 0 when unknown
+	NSFW        string   `json:"nsfw"`         // white, gray or black
 	Status      string   `json:"status"`
 	Mean        *float64 `json:"mean"`
 	Genres      []struct {
@@ -277,6 +290,10 @@ func (b *pageResponse) valid() bool {
 
 type detailResponse struct {
 	wire
+	Recommendations []struct {
+		Node  wire `json:"node"`
+		Votes int  `json:"num_recommendations"`
+	} `json:"recommendations"`
 	expectedID int
 }
 
@@ -306,10 +323,30 @@ func (p *MAL) Popular(ctx context.Context, page int) (Page, error) {
 	return p.page(ctx, "/manga/ranking", url.Values{"ranking_type": {"bypopularity"}, "nsfw": {"false"}}, page)
 }
 
-func (p *MAL) Detail(ctx context.Context, id int) (repository.Manga, error) {
+func (p *MAL) detail(ctx context.Context, id int) (detailResponse, error) {
 	b := detailResponse{expectedID: id}
-	if err := p.get(ctx, fmt.Sprintf("/manga/%d?fields=%s", id, url.QueryEscape(fields)), &b); err != nil {
+	err := p.get(ctx, fmt.Sprintf("/manga/%d?fields=%s", id, url.QueryEscape(detailFields)), &b)
+	return b, err
+}
+
+func (p *MAL) Detail(ctx context.Context, id int) (repository.Manga, error) {
+	b, err := p.detail(ctx, id)
+	if err != nil {
 		return repository.Manga{}, err
 	}
 	return b.manga(), nil
+}
+
+func (p *MAL) Recommendations(ctx context.Context, id int) ([]Recommendation, error) {
+	b, err := p.detail(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	recs := []Recommendation{}
+	for _, r := range b.Recommendations {
+		if r.Node.NSFW == "white" && validManga(r.Node) {
+			recs = append(recs, Recommendation{r.Node.manga(), r.Votes})
+		}
+	}
+	return recs, nil
 }

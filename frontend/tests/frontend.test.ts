@@ -186,6 +186,9 @@ test("a private dashboard response received after logout cannot restore reading 
     api,
     loadVersion: 0,
     recent: signal([{ manga: manga(1), chapter: "1" }]),
+    recommendations: signal([]),
+    recommendationsState: signal("idle"),
+    basedOn: signal(0),
     popular: signal([]),
     loading: signal(false),
     error: signal(""),
@@ -540,4 +543,42 @@ test("saving an empty unread chapter reports it as removed", async () => {
   assert.equal(f.component.feedback(), "Chapter 3 removed from your journal.");
   assert.equal(f.component.library().chapters.length, 0);
   f.injector.destroy();
+});
+
+test("dashboard recommendations load separately and ignore stale accounts", async () => {
+  const api = new Api();
+  api.user.set({ id: "1", username: "reader", email: "a@example.org" });
+  const pending = deferred();
+  api.request = async () => pending.promise;
+  const dashboard: any = Object.assign(Object.create(Dashboard.prototype), {
+    api,
+    loadVersion: 1,
+    recommendations: signal([]),
+    recommendationsState: signal("idle"),
+    basedOn: signal(0),
+  });
+  const load = dashboard.loadRecommendations(1, "1");
+  assert.equal(dashboard.recommendationsState(), "loading");
+  pending.resolve({
+    items: [{ manga: manga(5), because: { id: 1, title: "Manga 1" } }],
+    basedOn: 1,
+    catalogWarning: "",
+  });
+  await load;
+  assert.equal(dashboard.recommendationsState(), "ready");
+  assert.equal(dashboard.recommendations()[0].because.title, "Manga 1");
+
+  // A response for an account that signed out meanwhile is dropped.
+  const stale = deferred();
+  api.request = async () => stale.promise;
+  const second = dashboard.loadRecommendations(1, "1");
+  api.user.set({ id: "2", username: "other", email: "b@example.org" });
+  stale.resolve({ items: [], basedOn: 0, catalogWarning: "" });
+  await second;
+  assert.equal(dashboard.recommendations().length, 1);
+
+  api.request = async () => ({ items: [], basedOn: 2, catalogWarning: "down" });
+  api.user.set({ id: "1", username: "reader", email: "a@example.org" });
+  await dashboard.loadRecommendations(1, "1");
+  assert.equal(dashboard.recommendationsState(), "error");
 });

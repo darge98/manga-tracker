@@ -264,3 +264,33 @@ func collectManga(rows pgx.Rows, err error) ([]Manga, error) {
 	}
 	return items, wrap(err)
 }
+
+// LibraryStat summarizes how the user received one manga in the library.
+type LibraryStat struct {
+	MangaID      int
+	Title        string
+	Favorite     bool
+	AvgRating    *float64 // nil when no chapter is rated
+	ReadChapters int
+}
+
+// LibraryStats returns one row per library entry of the user.
+func (s *Store) LibraryStats(ctx context.Context, userID string) ([]LibraryStat, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT l.manga_id, m.metadata->>'title', l.favorite,
+		       avg(c.rating)::float8, count(c.chapter) FILTER (WHERE c.is_read)
+		FROM library l
+		JOIN manga m ON m.id = l.manga_id
+		LEFT JOIN chapters c ON c.user_id = l.user_id AND c.manga_id = l.manga_id
+		WHERE l.user_id = $1
+		GROUP BY l.manga_id, m.metadata, l.favorite`, userID)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	stats, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (LibraryStat, error) {
+		var st LibraryStat
+		err := row.Scan(&st.MangaID, &st.Title, &st.Favorite, &st.AvgRating, &st.ReadChapters)
+		return st, err
+	})
+	return stats, wrap(err)
+}
