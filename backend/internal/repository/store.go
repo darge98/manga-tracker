@@ -1,189 +1,101 @@
+// Package repository persists users, sessions, catalog metadata, reading
+// progress and lists in PostgreSQL. Every method runs targeted queries, so the
+// cost of a request depends only on the data it touches.
 package repository
 
 import (
-	"database/sql"
-	"encoding/json"
+	"context"
 	"errors"
-	"os"
-	"path/filepath"
-	"sync"
-	"syscall"
+	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Manga struct {
-	ID          int      `json:"id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	CoverURL    string   `json:"coverUrl"`
-	Chapters    *int     `json:"chapters"`
-	Status      string   `json:"status"`
-	Genres      []string `json:"genres"`
-	Score       *float64 `json:"score"`
-	Author      string   `json:"author"`
-	URL         string   `json:"url"`
-}
-type User struct {
-	ID           string `json:"id"`
-	Username     string `json:"username"`
-	Email        string `json:"email"`
-	PasswordHash string `json:"passwordHash"`
-}
-type Session struct {
-	UserID    string    `json:"userId"`
-	ExpiresAt time.Time `json:"expiresAt"`
-}
-type Chapter struct {
-	Chapter string     `json:"chapter"`
-	Read    bool       `json:"read"`
-	ReadAt  *time.Time `json:"readAt"`
-	Rating  *int       `json:"rating"`
-	Notes   string     `json:"notes"`
-}
-type Library struct {
-	MangaID  int       `json:"mangaId"`
-	Chapters []Chapter `json:"chapters"`
-	ToRead   bool      `json:"toRead"`
-	Favorite bool      `json:"favorite"`
-}
-type List struct {
-	ID          string    `json:"id"`
-	OwnerID     string    `json:"ownerId"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	IsPublic    bool      `json:"isPublic"`
-	ItemIDs     []int     `json:"itemIds"`
-	CreatedAt   time.Time `json:"createdAt"`
-}
-type State struct {
-	Users     map[string]User            `json:"users"`
-	Sessions  map[string]Session         `json:"sessions"`
-	Manga     map[int]Manga              `json:"manga"`
-	Libraries map[string]map[int]Library `json:"libraries"`
-	Lists     map[string]List            `json:"lists"`
-}
-
-func empty() State {
-	return State{map[string]User{}, map[string]Session{}, map[int]Manga{}, map[string]map[int]Library{}, map[string]List{}}
-}
+var (
+	ErrNotFound    = errors.New("record not found")
+	ErrEmailTaken  = errors.New("email already registered")
+	ErrUnavailable = errors.New("database temporarily unavailable")
+)
 
 type Store struct {
-	mu    sync.RWMutex
-	path  string
-	state State
-	lock  *os.File
-	db    *sql.DB
+	pool *pgxpool.Pool
 }
 
-func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
-	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		lock.Close()
-		return nil, errors.New("database already in use by another server")
-	}
-	s := &Store{path: path, state: empty(), lock: lock}
-	success := false
-	defer func() {
-		if !success {
-			s.Close()
-		}
-	}()
-	b, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		success = true
-		return s, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err = json.Unmarshal(b, &s.state); err != nil {
-		return nil, err
-	}
-	if s.state.Users == nil || s.state.Sessions == nil || s.state.Manga == nil || s.state.Libraries == nil || s.state.Lists == nil {
-		return nil, errors.New("invalid database structure")
-	}
-	success = true
-	return s, nil
-}
-func (s *Store) View(fn func(State)) error {
-	if s.db != nil {
-		return s.viewPostgres(fn)
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	fn(s.state)
-	return nil
+// querier is satisfied by both the pool and a transaction, so read helpers can
+// run standalone or inside a write transaction.
+type querier interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-// Update serializes mutations, saves a complete snapshot via fsync + atomic rename,
-// and publishes it only after persistence succeeds. A failed write cannot mutate live state.
-func (s *Store) Update(fn func(*State) error) error {
-	if s.db != nil {
-		return s.updatePostgres(fn)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	b, err := json.Marshal(s.state)
+// Open connects to PostgreSQL and applies pending migrations. Error messages
+// never include the connection URL, which carries the password.
+func Open(ctx context.Context, databaseURL string) (*Store, error) {
+	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return err
+		return nil, errors.New("DATABASE_URL must be a valid PostgreSQL connection URL")
 	}
-	var next State
-	if err = json.Unmarshal(b, &next); err != nil {
-		return err
+	if config.ConnConfig.ConnectTimeout == 0 {
+		config.ConnConfig.ConnectTimeout = 10 * time.Second
 	}
-	if err = fn(&next); err != nil {
-		return err
-	}
-	b, err = json.Marshal(next)
+	config.MaxConns = 10
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		return err
+		return nil, errors.New("unable to configure PostgreSQL connection")
 	}
-	if err = os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
-		return err
+	if err = pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, errors.New("PostgreSQL unavailable: check database readiness and DATABASE_URL")
 	}
-	f, err := os.CreateTemp(filepath.Dir(s.path), ".database-*")
+	if err = migrate(ctx, pool); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("PostgreSQL schema migration failed: %w", err)
+	}
+	return &Store{pool: pool}, nil
+}
+
+func (s *Store) Close() { s.pool.Close() }
+
+func (s *Store) Ping(ctx context.Context) error { return wrap(s.pool.Ping(ctx)) }
+
+// inTx runs fn in a transaction, committing only if fn succeeds.
+func (s *Store) inTx(ctx context.Context, fn func(pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
+		return wrap(err)
+	}
+	defer tx.Rollback(ctx)
+	if err = fn(tx); err != nil {
 		return err
 	}
-	name := f.Name()
-	defer os.Remove(name)
-	if err = f.Chmod(0600); err == nil {
-		_, err = f.Write(b)
-	}
+	return wrap(tx.Commit(ctx))
+}
+
+// wrap maps driver errors to the package's sentinel errors. Errors reported by
+// the server (constraint violations, SQL bugs) are returned unchanged; anything
+// else means the database could not be reached.
+func wrap(err error) error {
 	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = os.Rename(name, s.path); err != nil {
-		return err
-	}
-	s.state = next
-	if dir, e := os.Open(filepath.Dir(s.path)); e == nil {
-		_ = dir.Sync()
-		_ = dir.Close()
-	}
-	return nil
-}
-
-func (s *Store) Close() error {
-	if s.db != nil {
-		return s.db.Close()
-	}
-	if s.lock == nil {
 		return nil
 	}
-	_ = syscall.Flock(int(s.lock.Fd()), syscall.LOCK_UN)
-	return s.lock.Close()
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrEmailTaken) || errors.Is(err, ErrUnavailable) || errors.Is(err, context.Canceled) {
+		return err
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", ErrUnavailable, err)
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

@@ -15,7 +15,7 @@ Aprire `http://localhost:8080`. `APP_PORT` cambia la porta pubblicata; `APP_BIND
 
 Lo stack comprende Angular compilato e servito da Nginx non-root, API Go non-root e PostgreSQL 18. Solo la UI espone una porta host; Nginx inoltra `/api` al backend, preservando URI e `Host`. Backend e database non pubblicano porte. La rete del database è interna; il backend dispone anche della rete applicativa per contattare Jikan. Compose attende PostgreSQL healthy, poi l'API healthy, prima di avviare la UI. Le immagini si costruiscono in più stage e i contesti escludono dipendenze locali, file dati e configurazioni private.
 
-`DATABASE_URL` viene costruito da Compose e seleziona PostgreSQL realmente: non viene scritto in `.env.example`, così `bash scripts/dev.sh` continua a usare l'archivio JSON nativo. Il binario Docker viene compilato con `-tags postgres` e il driver Go `lib/pq`. All'avvio applica lo schema; `/api/health` verifica il database e riporta `storage: postgres`. `COOKIE_SECURE=false` serve per HTTP locale; per HTTPS impostarlo a `true` e configurare `DOCKER_ALLOWED_ORIGINS` con gli indirizzi pubblici effettivi.
+`DATABASE_URL` viene costruito da Compose. All'avvio il backend applica le migrazioni mancanti; `/api/health` verifica il database e risponde 503 se non è raggiungibile. Il backend è raggiungibile solo tramite Nginx, per questo Compose imposta `TRUST_PROXY=true`: i limiti di frequenza usano l'IP reale del client (`X-Real-IP`) invece di quello di Nginx. `COOKIE_SECURE=false` serve per HTTP locale; per HTTPS impostarlo a `true` e configurare `DOCKER_ALLOWED_ORIGINS` con gli indirizzi pubblici effettivi.
 
 ## Operazioni quotidiane
 
@@ -46,24 +46,9 @@ docker compose up -d
 
 Se il database contiene già dati, non applicare il dump sopra di essi: ripristinare prima in un nuovo ambiente o database vuoto. Il comando non elimina automaticamente i dati esistenti.
 
-## Importazione dell'archivio JSON precedente
-
-La modalità nativa JSON rimane disponibile. Compose non la importa automaticamente. Per trasferire un archivio precedente a PostgreSQL, conservare una copia del file e usare un database target vuoto. Arrestare il backend nativo prima di copiare il JSON, poi:
-
-```bash
-docker compose up -d --wait db
-docker compose build backend
-docker compose run --rm --no-deps --user "$(id -u):$(id -g)" -v "$PWD/backend/data/manga-track.json:/legacy.json:ro" backend import-json /legacy.json
-docker compose up -d
-```
-
-L'importazione legge il file in sola lettura e inserisce i dati in un'unica transazione con controllo di database vuoto; rifiuta di sovrascrivere dati esistenti. Il vecchio JSON può avere permessi `0600`: il comando usa temporaneamente UID/GID dell'utente host che possiede il file, senza cambiarne i permessi e senza dare privilegi al container. Solo quel file è montato, in sola lettura; il backend ordinario rimane sotto l'utente non-root dell'immagine. La struttura include hash delle password e sessioni: trattare file e dump come dati privati. Nessuna credenziale viene copiata nelle immagini.
-
 ## Diagnostica e verifica
 
 `docker compose exec backend wget -qO- http://127.0.0.1:8080/api/health` deve mostrare stato `ok` e storage `postgres`. Visitare la UI, registrare due account e verificare l'isolamento di diario e liste; dopo `down`/`up -d`, le letture devono essere ancora presenti. I test in-process non sostituiscono questa prova.
-
-In questa sessione, Docker CLI e Compose sono disponibili. Dopo l'avvio manuale di OrbStack, il socket del daemon esiste, ma `docker info` restituisce `permission denied while trying to connect to the docker API` nella sandbox. Un precedente tentativo di build si era fermato anche per cache Buildx fuori dalle directory scrivibili; `BUILDX_CONFIG="$PWD/.dev/docker-buildx"` può spostare quella cache, ma non cambia il permesso di accesso al socket. La verifica `config` e gli assert su porte/origini/volume sono superati; build, startup, migrazione PostgreSQL e persistenza dei container restano non eseguiti. Avviare i comandi da un terminale normale dell'host.
 
 Per eseguire i test Go e di integrazione PostgreSQL senza Go sull'host:
 
@@ -72,6 +57,6 @@ docker compose --profile test run --build --rm backend-test
 docker compose --profile test stop testdb
 ```
 
-Il profilo usa `TEST_DATABASE_URL` verso un database dedicato `manga_track_test`, su rete separata, con dati temporanei in memoria. Non usa il volume applicativo e non modifica il database `db`. I test richiedono un target inizialmente vuoto; una nuova esecuzione dopo l'arresto di `testdb` riparte senza record. Il comando `go test -tags postgres -count=1 -p 1 ./...` serializza i package che condividono questo database di test. Le immagini di build scaricano il driver Go, quindi serve anche accesso al registry e al proxy Go durante la prima build. Questo comando deve ancora essere eseguito con un daemon disponibile; non è una prova già superata.
+Il profilo usa `TEST_DATABASE_URL` verso un database dedicato `manga_track_test`, su una rete separata e con i dati in memoria. Non usa il volume applicativo. Ogni test crea uno schema proprio e lo elimina alla fine.
 
 Fonti primarie: [ordine di avvio Compose](https://docs.docker.com/compose/how-tos/startup-order/), [immagine PostgreSQL ufficiale](https://hub.docker.com/_/postgres), [Nginx non-root](https://github.com/nginx/docker-nginx-unprivileged). PostgreSQL 18 usa il volume in `/var/lib/postgresql`, che questo Compose monta nel percorso corretto.

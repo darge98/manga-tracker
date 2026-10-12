@@ -23,38 +23,54 @@ func env(key, def string) string {
 	}
 	return def
 }
+
 func main() {
 	if err := run(); err != nil {
 		log.Print(err)
 		os.Exit(1)
 	}
 }
+
 func run() error {
-	store, err := repository.OpenConfigured(os.Getenv("DATABASE_URL"), env("DATA_FILE", "data/manga-track.json"))
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		return errors.New("DATABASE_URL is required (docker compose sets it)")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	openCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	store, err := repository.Open(openCtx, databaseURL)
+	cancel()
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	if len(os.Args) > 1 {
-		if len(os.Args) != 3 || os.Args[1] != "import-json" {
-			return errors.New("usage: server [import-json /path/to/legacy.json]")
-		}
-		if err := store.ImportJSON(os.Args[2]); err != nil {
-			return err
-		}
-		log.Print("Legacy JSON imported into PostgreSQL; source file unchanged")
-		return nil
-	}
-	origins := strings.Split(env("ALLOWED_ORIGINS", "http://localhost:4200,http://127.0.0.1:4200"), ",")
+	go cleanSessions(ctx, store)
+
+	origins := strings.Split(env("ALLOWED_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080"), ",")
 	for i := range origins {
 		origins[i] = strings.TrimSpace(origins[i])
 	}
-	handler := api.New(store, provider.NewJikan(), api.Config{AllowedOrigins: origins, SecureCookie: os.Getenv("COOKIE_SECURE") == "true"})
-	server := &http.Server{Addr: net.JoinHostPort(env("HOST", "127.0.0.1"), env("PORT", "8080")), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	handler := api.New(store, provider.NewJikan(), api.Config{
+		AllowedOrigins: origins,
+		SecureCookie:   os.Getenv("COOKIE_SECURE") == "true",
+		TrustProxy:     os.Getenv("TRUST_PROXY") == "true",
+	})
+	server := &http.Server{
+		Addr:              net.JoinHostPort(env("HOST", "127.0.0.1"), env("PORT", "8080")),
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       20 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
 	result := make(chan error, 1)
-	go func() { log.Printf("Manga Track API listening on %s", server.Addr); result <- server.ListenAndServe() }()
+	go func() {
+		log.Printf("Manga Track API listening on %s", server.Addr)
+		result <- server.ListenAndServe()
+	}()
 	select {
 	case err := <-result:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -71,5 +87,23 @@ func run() error {
 		}
 		log.Print("Manga Track API stopped")
 		return nil
+	}
+}
+
+// cleanSessions removes expired sessions at startup and then hourly.
+func cleanSessions(ctx context.Context, store *repository.Store) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		if n, err := store.DeleteExpiredSessions(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("session cleanup failed: %v", err)
+		} else if n > 0 {
+			log.Printf("removed %d expired sessions", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }

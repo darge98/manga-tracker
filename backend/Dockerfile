@@ -4,11 +4,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -tags postgres -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 FROM build AS test
 ENV CGO_ENABLED=0
-CMD ["go", "test", "-tags", "postgres", "-count=1", "-p", "1", "./..."]
+CMD ["go", "test", "-count=1", "./..."]
 
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates && addgroup -S -g 10001 manga && adduser -S -D -H -u 10001 -G manga manga

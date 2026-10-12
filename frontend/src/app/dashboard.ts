@@ -134,15 +134,18 @@ export class Dashboard {
     this.error.set("");
     try {
       if (owner) {
-        const d = await this.api.request<{ popular: Manga[]; recent: any[] }>(
+        const d = await this.api.request<{
+          popular: Manga[];
+          recent: any[];
+          catalogWarning: string;
+        }>(
           "/dashboard",
         );
         if (version !== this.loadVersion || owner !== this.api.user()?.id)
           return;
         this.popular.set(d.popular);
         this.recent.set(d.recent);
-        if ((d as any).catalogWarning)
-          this.error.set((d as any).catalogWarning);
+        if (d.catalogWarning) this.error.set(d.catalogWarning);
       } else {
         const d = await this.api.request<{ items: Manga[] }>("/manga/popular");
         if (version !== this.loadVersion) return;

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -113,5 +114,66 @@ func TestJikanSearchEncodingAndAdmissionInterval(t *testing.T) {
 	cancel()
 	if _, e := p.Search(ctx, "different", 2); e != ErrUnavailable || calls != 1 {
 		t.Fatal("cancelled throttle wait should not reach upstream")
+	}
+}
+
+func TestJikanCacheIsNotBlockedByUpstreamCalls(t *testing.T) {
+	p := NewJikan()
+	release := make(chan struct{})
+	started := make(chan struct{})
+	p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Query().Get("q") == "slow" {
+			close(started)
+			<-release
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))}, nil
+	})}
+	if _, err := p.Search(context.Background(), "cached", 1); err != nil {
+		t.Fatal(err)
+	}
+	p.next = time.Time{}
+	go p.Search(context.Background(), "slow", 1)
+	<-started
+	done := make(chan error, 1)
+	go func() { _, err := p.Search(context.Background(), "cached", 1); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cached response waited for an unrelated upstream call")
+	}
+	close(release)
+}
+
+func TestJikanQueueFailsFastWhenFull(t *testing.T) {
+	p := NewJikan()
+	calls := 0
+	p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))}, nil
+	})}
+	p.next = time.Now().Add(maxQueueWait + time.Second) // backlog already beyond the limit
+	start := time.Now()
+	if _, err := p.Search(context.Background(), "queued", 1); err != ErrUnavailable || calls != 0 {
+		t.Fatalf("expected immediate ErrUnavailable, got %v after %d calls", err, calls)
+	}
+	if time.Since(start) > 100*time.Millisecond {
+		t.Fatal("full queue should not wait")
+	}
+}
+
+func TestJikanCacheEvictsOneEntryWhenFull(t *testing.T) {
+	p := NewJikan()
+	for i := range cacheSize {
+		p.store(fmt.Sprint(i), []byte("{}"))
+	}
+	p.store("new", []byte("{}"))
+	if len(p.cache) != cacheSize {
+		t.Fatalf("cache size %d, want %d", len(p.cache), cacheSize)
+	}
+	if _, ok := p.cached("new"); !ok {
+		t.Fatal("new entry missing")
 	}
 }

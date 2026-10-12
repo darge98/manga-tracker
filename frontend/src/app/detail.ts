@@ -281,11 +281,13 @@ export class Detail {
     this.loading.set(true);
     this.error.set("");
     try {
-      const d = await this.api.request<{ manga: Manga }>("/manga/" + this.id);
+      const d = await this.api.request<{
+        manga: Manga;
+        catalogWarning: string;
+      }>("/manga/" + this.id);
       if (version !== this.loadVersion) return;
       this.manga.set(d.manga);
-      if ((d as any).catalogWarning)
-        this.feedback.set((d as any).catalogWarning);
+      if (d.catalogWarning) this.feedback.set(d.catalogWarning);
       if (this.api.user()) {
         const [l, ls] = await Promise.all([
           this.api.request<Library>("/library/" + this.id),
@@ -329,10 +331,9 @@ export class Detail {
   }
   async toggle(key: "toRead" | "favorite") {
     const id = this.id;
-    const manga = this.manga();
     const next = !this.library()[key];
     await this.mutate(async (current) => {
-      await this.api.request("/library/" + id, "PUT", { [key]: next, manga });
+      await this.api.request("/library/" + id, "PUT", { [key]: next });
       if (!current()) return;
       this.library.update((l) => ({ ...l, [key]: next }));
       this.feedback.set(
@@ -353,7 +354,6 @@ export class Detail {
       read: this.read,
       rating: this.rating,
       notes: this.notes,
-      manga: this.manga(),
     };
     await this.mutate(async (current) => {
       await this.api.request(
@@ -371,11 +371,8 @@ export class Detail {
   async addList() {
     const id = this.id;
     const list = this.selectedList;
-    const manga = this.manga();
     await this.mutate(async (current) => {
-      await this.api.request("/lists/" + list + "/items/" + id, "PUT", {
-        manga,
-      });
+      await this.api.request("/lists/" + list + "/items/" + id, "PUT", {});
       if (current()) this.feedback.set("Manga aggiunto alla lista.");
     });
   }

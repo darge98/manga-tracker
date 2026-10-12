@@ -1,105 +1,54 @@
 # Manga Track
 
-Applicazione Angular + Go per tenere il diario delle proprie letture manga: dashboard, ricerca catalogo, progresso, feedback per capitolo, preferiti e liste pubbliche o private. Ogni account mantiene la propria libreria.
+Applicazione Angular + Go per tenere il diario delle proprie letture manga: dashboard, ricerca nel catalogo, progresso, feedback per capitolo, preferiti e liste pubbliche o private. Ogni account ha la propria libreria.
 
-## Tutto l'ambiente con Docker
+## Avvio
 
-Con Docker Engine attivo e Docker Compose, dal root:
+Serve solo Docker con Docker Compose. Dalla cartella del progetto:
 
 ```bash
-cp .env.example .env
+cp .env.example .env   # poi cambia POSTGRES_PASSWORD
 docker compose up --build -d
-docker compose ps
 ```
 
-Aprire `http://localhost:8080`. Compose avvia frontend Angular/Nginx, API Go e **PostgreSQL 18 realmente usato dal backend**, con volume persistente. Solo la UI pubblica una porta host; database e API restano interni. L'esempio `.env` contiene una password per sviluppo locale: cambiarla prima della prima inizializzazione per altri ambienti. `APP_PORT` configura la porta UI.
+Aprire `http://localhost:8080`. Compose avvia il frontend Angular servito da Nginx, l'API Go e PostgreSQL 18 con un volume persistente. Solo la UI pubblica una porta sull'host; Nginx inoltra `/api` al backend. `docker compose logs -f` mostra i log, `docker compose down` arresta l'ambiente conservando i dati.
 
-`docker compose logs -f` mostra i log; `docker compose down` arresta l'ambiente e conserva il database. Vedere [guida Docker](docs/docker.md) per backup, ripristino, importazione del JSON precedente e configurazione HTTPS. Non serve installare Go o Node sull'host per questo avvio.
+Backup, ripristino e HTTPS: vedere la [guida Docker](docs/docker.md).
 
-## Avvio locale
+### Sviluppo del frontend con hot reload
 
-Servono Go 1.21+ e Node.js 24.15+ (serie 24), con npm. Angular 22.2.1 e TypeScript 6.0.3 sono fissati nel frontend. Dal root del progetto:
+Con lo stack avviato, `npm start` nella cartella `frontend` (Node 24, vedi `.nvmrc`) serve l'app su `http://localhost:4200` e inoltra `/api` allo stack Docker su `http://127.0.0.1:8080`.
+
+## Test
 
 ```bash
-bash scripts/dev.sh
+# Backend: PostgreSQL di test isolato, dati in memoria
+docker compose --profile test run --build --rm backend-test
+docker compose --profile test stop testdb
+
+# Frontend
+cd frontend && npm ci && npm test && npm run check && npm run build
 ```
 
-Lo script controlla il Node presente nel `PATH` prima di installare dipendenze, compilare Go o avviare servizi. Richiede Node 24.15+ della serie 24 con npm; non modifica la versione predefinita e non installa runtime o pacchetti globali. Poi installa le dipendenze mancanti, compila il backend e avvia entrambi i servizi. Aprire `http://localhost:4200`; Angular inoltra `/api` al backend su `http://localhost:8080`. `Ctrl+C` arresta i servizi.
-
-Con nvm, dalla cartella del progetto, selezionare la versione indicata da `.nvmrc` (Node 24.21.0):
-
-```bash
-nvm install # solo se la versione non è già installata
-nvm use
-bash scripts/dev.sh
-```
-
-Per i comandi npm manuali, usare lo stesso runtime. Il banner indica gli indirizzi di avvio richiesti; la disponibilità effettiva è confermata dai log dei servizi. In caso di arresto, lo script identifica il servizio e riporta il codice di uscita, compreso il numero di segnale quando applicabile.
-
-Avvio separato, utile durante lo sviluppo (per Go 1.21 su macOS usare lo script oppure la procedura compilazione/firma descritta sotto):
+I test del backend girano contro un PostgreSQL reale: ogni test crea il proprio schema e lo elimina alla fine, quindi i test possono girare in parallelo. Con Go 1.26 installato si possono lanciare anche dall'host, indicando un database di test:
 
 ```bash
 cd backend
-go run ./cmd/server
+TEST_DATABASE_URL='postgres://USER:PASSWORD@127.0.0.1:5432/DB?sslmode=disable' go test -race ./...
 ```
 
-In un altro terminale:
+Senza `TEST_DATABASE_URL` i test che usano il database vengono saltati, e il motivo è indicato nell'output.
 
-```bash
-cd frontend
-npm install
-npm start
-```
+## Architettura
 
-Registrare un account dall'interfaccia per iniziare. Non sono richieste credenziali MyAnimeList o AniList.
+- `backend/internal/api`: handler HTTP (`net/http.ServeMux` con pattern), validazione, ownership, rate limit.
+- `backend/internal/repository`: accesso a PostgreSQL tramite `pgx` con query mirate, e migrazioni numerate in `migrations/`, applicate all'avvio. Per cambiare lo schema si aggiunge un nuovo file `NNN_descrizione.sql`; i file già applicati non si modificano.
+- `backend/internal/provider`: client [Jikan v4](https://docs.api.jikan.moe/) con cache e limite di 60 richieste al minuto verso l'upstream.
+- `backend/internal/auth`: hash delle password (PBKDF2) e token di sessione.
+- `frontend/`: Angular 22 con componenti standalone.
 
-Configurazione facoltativa: copiare `.env.example` in `.env`, caricato dallo script. `HOST` vale `127.0.0.1`, `PORT` vale `8080`, `DATA_FILE` vale `data/manga-track.json` relativo alla directory backend e `ALLOWED_ORIGINS` ammette i due indirizzi locali del frontend. `COOKIE_SECURE=true` richiede HTTPS. Cambiando la porta backend va aggiornata anche `frontend/proxy.conf.json`.
-
-L'avvio nativo senza `DATABASE_URL` conserva i dati nel file JSON `backend/data/manga-track.json`, con scrittura atomica. Questa modalità supporta una singola istanza Go; non avviare processi multipli sullo stesso file. Per salvare i dati, eseguire un backup del file dopo aver arrestato il server. Docker Compose usa invece PostgreSQL; non cambia né importa automaticamente questo archivio locale.
-
-Per produzione, `npm --prefix frontend run build` genera gli asset Angular da servire con un hosting statico che rimanda le rotte SPA a `index.html`. Un reverse proxy dello stesso dominio deve inoltrare `/api` al processo Go; il server Go non serve gli asset Angular. Configurare HTTPS, `COOKIE_SECURE=true`, origini consentite e percorso dati persistente. Il repository fornisce l'avvio locale, non un deployment già pubblicato.
+Contratto completo: [docs/api.md](docs/api.md). [Ricerca e motivazioni](docs/research.md) spiegano la scelta del catalogo.
 
 ## Catalogo e dati personali
 
-Il catalogo usa [Jikan v4](https://docs.api.jikan.moe/), API pubblica indipendente che espone metadata MyAnimeList. Tracking, autenticazione, note e liste sono gestiti dall'applicazione. Non è un lettore di scansioni né una sincronizzazione delle liste MAL.
-
-I totali capitoli possono essere sconosciuti, soprattutto per serie in corso: il progresso resta personale e non implica un conteggio aggiornato dei capitoli pubblicati. [Ricerca e motivazioni](docs/research.md) includono fonti e idee UX da AniList; i suoi termini escludono questo uso come tracker autonomo.
-
-Le liste pubbliche sono condivisibili; il diario per capitolo e il progresso personale non fanno parte del contenuto condiviso. I file locali contenenti account e sessioni sono esclusi dal versionamento con `.gitignore`.
-
-## Verifica
-
-Per verificare preflight e gestione degli arresti dello script senza avviare server reali:
-
-```bash
-bash scripts/test-dev.sh
-```
-
-```bash
-cd backend
-go test ./...
-go vet ./...
-```
-
-```bash
-cd frontend
-npm test
-npm run check
-npm run build
-```
-
-Vedere [contratto API](docs/api.md) e [evidenze della verifica](docs/verification.md).
-
-Su macOS recente con Go 1.21, il linker interno può produrre un binario che `dyld` rifiuta per `missing LC_UUID`. Lo script usa il linker esterno macOS (richiede gli strumenti Xcode/clang). Dopo la compilazione applica una firma ad hoc con `codesign --force --sign -` al proprio binario, la verifica e solo allora lo avvia. Questo corregge anche gli arresti `Killed: 9` dovuti a `Code Signature Invalid` osservati con Go 1.21 su macOS recente, senza modificare Gatekeeper o impostazioni di sicurezza. Per l'avvio manuale su macOS con Go 1.21, compilare e firmare il binario prima di eseguirlo, dal root:
-
-```bash
-mkdir -p .dev
-(cd backend && go build -ldflags=-linkmode=external -o ../.dev/manga-track-server ./cmd/server)
-codesign --force --sign - .dev/manga-track-server
-codesign --verify .dev/manga-track-server
-(cd backend && ../.dev/manga-track-server)
-```
-
-Per i test Go, `go test -ldflags=-linkmode=external ./...` evita l'errore `missing LC_UUID`.
-
-Nell'ambiente di sviluppo gestito di questa sessione, l'apertura di porte locali è negata (`bind: operation not permitted`) e il processo shell non risolve `api.jikan.moe`. I test Go usano gli handler HTTP reali, un archivio temporaneo e un catalogo di test dichiarato; questo non dimostra un flusso browser completo né il provider live. Avviare lo script da un normale terminale sul proprio host per usare l'applicazione e completare la prova dal browser.
+Il catalogo usa Jikan, un'API pubblica che espone i metadata di MyAnimeList. Tracking, autenticazione, note e liste sono gestiti dall'applicazione. Non è un lettore di scansioni né una sincronizzazione delle liste MAL. Il totale dei capitoli può essere sconosciuto, soprattutto per le serie in corso. Le liste pubbliche sono condivisibili; il diario per capitolo e il progresso personale non vengono mai condivisi.

@@ -146,7 +146,7 @@ test("chapter feedback supports unread decimal chapters independently of catalog
   assert.equal(payload.read, false);
   assert.equal(payload.rating, 4);
   assert.equal(payload.notes, "Una scena da ricordare");
-  assert.equal(payload.manga.id, 1);
+  assert.equal(payload.manga, undefined);
   f.injector.destroy();
 });
 

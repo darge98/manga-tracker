@@ -1,187 +1,153 @@
 package api
 
 import (
+	"errors"
 	"manga-track/backend/internal/auth"
 	"manga-track/backend/internal/repository"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 )
 
-func listDTO(l repository.List) interface{} {
-	return map[string]interface{}{"id": l.ID, "name": l.Name, "description": l.Description, "isPublic": l.IsPublic, "itemCount": len(l.ItemIDs), "createdAt": l.CreatedAt}
+var errListNotFound = fail(http.StatusNotFound, "List not found")
+
+func validListName(name string) bool { return len(name) >= 1 && len(name) <= 100 }
+
+// notFoundAsList reports missing or foreign lists with the same 404, so
+// callers cannot probe for other users' list IDs.
+func notFoundAsList(err error) error {
+	if errors.Is(err, repository.ErrNotFound) {
+		return errListNotFound
+	}
+	return err
 }
-func (s *Server) lists(w http.ResponseWriter, r *http.Request) error {
-	u, e := s.user(r)
-	if e != nil {
-		return e
+
+func (s *Server) ownLists(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	lists, err := s.store.ListsByOwner(r.Context(), user.ID)
+	if err != nil {
+		return err
 	}
-	if r.Method == "GET" {
-		ls := []repository.List{}
-		if viewErr := s.Store.View(func(st repository.State) {
-			for _, l := range st.Lists {
-				if l.OwnerID == u.ID {
-					ls = append(ls, l)
-				}
-			}
-		}); viewErr != nil {
-			return viewErr
-		}
-		sort.Slice(ls, func(i, j int) bool { return ls[i].CreatedAt.Before(ls[j].CreatedAt) })
-		items := []interface{}{}
-		for _, l := range ls {
-			items = append(items, listDTO(l))
-		}
-		write(w, 200, map[string]interface{}{"items": items})
-		return nil
-	}
-	if e = method(r, "POST"); e != nil {
-		return e
-	}
-	var b struct {
+	writeJSON(w, http.StatusOK, map[string]any{"items": lists})
+	return nil
+}
+
+func (s *Server) createList(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	var body struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		IsPublic    bool   `json:"isPublic"`
 	}
-	if e = decode(w, r, &b); e != nil {
-		return e
+	if err := decode(w, r, &body); err != nil {
+		return err
 	}
-	b.Name = strings.TrimSpace(b.Name)
-	if len(b.Name) < 1 || len(b.Name) > 100 || len(b.Description) > 1000 {
-		return fail(400, "List name is required (max 100 characters), description max 1000")
+	body.Name = strings.TrimSpace(body.Name)
+	if !validListName(body.Name) || len(body.Description) > 1000 {
+		return fail(http.StatusBadRequest, "List name is required (max 100 characters), description max 1000")
 	}
-	id, e := auth.Token()
-	if e != nil {
-		return e
+	id, err := auth.Token()
+	if err != nil {
+		return err
 	}
-	l := repository.List{ID: id[:24], OwnerID: u.ID, Name: b.Name, Description: b.Description, IsPublic: b.IsPublic, ItemIDs: []int{}, CreatedAt: time.Now().UTC()}
-	if e = s.Store.Update(func(st *repository.State) error { st.Lists[l.ID] = l; return nil }); e != nil {
-		return e
+	l := repository.List{ID: id[:24], OwnerID: user.ID, Name: body.Name, Description: body.Description, IsPublic: body.IsPublic, CreatedAt: time.Now().UTC()}
+	if err = s.store.CreateList(r.Context(), l); err != nil {
+		return err
 	}
-	write(w, 201, map[string]interface{}{"list": listDTO(l), "items": []repository.Manga{}})
+	writeJSON(w, http.StatusCreated, map[string]any{"list": l, "items": []repository.Manga{}})
 	return nil
 }
-func (s *Server) list(w http.ResponseWriter, r *http.Request, p []string, public bool) error {
-	var u repository.User
-	var e error
-	if !public {
-		u, e = s.user(r)
-		if e != nil {
-			return e
-		}
+
+func (s *Server) getList(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	return s.writeList(w, r, func(l repository.List) bool { return l.OwnerID == user.ID })
+}
+
+func (s *Server) publicList(w http.ResponseWriter, r *http.Request) error {
+	return s.writeList(w, r, func(l repository.List) bool { return l.IsPublic })
+}
+
+func (s *Server) writeList(w http.ResponseWriter, r *http.Request, visible func(repository.List) bool) error {
+	l, err := s.store.List(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return notFoundAsList(err)
 	}
-	var l repository.List
-	if viewErr := s.Store.View(func(st repository.State) { l = st.Lists[p[1]] }); viewErr != nil {
-		return viewErr
+	if !visible(l) {
+		return errListNotFound
 	}
-	if l.ID == "" || public && !l.IsPublic || !public && l.OwnerID != u.ID {
-		return fail(404, "List not found")
+	items, err := s.store.ListItems(r.Context(), l.ID)
+	if err != nil {
+		return err
 	}
-	if public && (len(p) != 2 || r.Method != "GET") {
-		return fail(405, "Method not allowed")
+	writeJSON(w, http.StatusOK, map[string]any{"list": l, "items": items})
+	return nil
+}
+
+func (s *Server) updateList(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	var body struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		IsPublic    *bool   `json:"isPublic"`
 	}
-	if len(p) == 2 && r.Method == "GET" {
-		items := []repository.Manga{}
-		if viewErr := s.Store.View(func(st repository.State) {
-			for _, id := range l.ItemIDs {
-				if m, ok := st.Manga[id]; ok {
-					items = append(items, m)
-				}
-			}
-		}); viewErr != nil {
-			return viewErr
-		}
-		write(w, 200, map[string]interface{}{"list": listDTO(l), "items": items})
-		return nil
+	if err := decode(w, r, &body); err != nil {
+		return err
 	}
-	if len(p) == 2 && r.Method == "DELETE" {
-		e = s.Store.Update(func(st *repository.State) error { delete(st.Lists, l.ID); return nil })
-		if e != nil {
-			return e
+	if body.Name != nil {
+		trimmed := strings.TrimSpace(*body.Name)
+		if !validListName(trimmed) {
+			return fail(http.StatusBadRequest, "List name must be 1–100 characters")
 		}
-		write(w, 200, map[string]bool{"ok": true})
-		return nil
+		body.Name = &trimmed
 	}
-	if len(p) == 2 && r.Method == "PATCH" {
-		var b struct {
-			Name        *string `json:"name"`
-			Description *string `json:"description"`
-			IsPublic    *bool   `json:"isPublic"`
-		}
-		if e = decode(w, r, &b); e != nil {
-			return e
-		}
-		e = s.Store.Update(func(st *repository.State) error {
-			v, ok := st.Lists[l.ID]
-			if !ok || v.OwnerID != u.ID {
-				return fail(404, "List not found")
-			}
-			if b.Name != nil {
-				v.Name = strings.TrimSpace(*b.Name)
-				if len(v.Name) < 1 || len(v.Name) > 100 {
-					return fail(400, "List name must be 1–100 characters")
-				}
-			}
-			if b.Description != nil {
-				if len(*b.Description) > 1000 {
-					return fail(400, "Description is too long")
-				}
-				v.Description = *b.Description
-			}
-			if b.IsPublic != nil {
-				v.IsPublic = *b.IsPublic
-			}
-			st.Lists[l.ID] = v
-			l = v
-			return nil
-		})
-		if e != nil {
-			return e
-		}
-		write(w, 200, map[string]interface{}{"list": listDTO(l)})
-		return nil
+	if body.Description != nil && len(*body.Description) > 1000 {
+		return fail(http.StatusBadRequest, "Description is too long")
 	}
-	if len(p) == 4 && p[2] == "items" && (r.Method == "PUT" || r.Method == "DELETE") {
-		id, err := integer(p[3])
-		if err != nil {
-			return err
-		}
-		if r.Method == "PUT" {
-			var b struct {
-				Manga *repository.Manga `json:"manga"`
-			}
-			if e = decode(w, r, &b); e != nil {
-				return e
-			}
-			if e = s.ensureManga(r, id, b.Manga); e != nil {
-				return e
-			}
-		}
-		e = s.Store.Update(func(st *repository.State) error {
-			v, ok := st.Lists[l.ID]
-			if !ok || v.OwnerID != u.ID {
-				return fail(404, "List not found")
-			}
-			ids := []int{}
-			for _, old := range v.ItemIDs {
-				if old != id {
-					ids = append(ids, old)
-				}
-			}
-			if r.Method == "PUT" {
-				ids = append(ids, id)
-			}
-			v.ItemIDs = ids
-			st.Lists[l.ID] = v
-			l = v
-			return nil
-		})
-		if e != nil {
-			return e
-		}
-		write(w, 200, map[string]interface{}{"list": listDTO(l)})
-		return nil
+	l, err := s.store.UpdateList(r.Context(), r.PathValue("id"), user.ID, repository.ListPatch{Name: body.Name, Description: body.Description, IsPublic: body.IsPublic})
+	if err != nil {
+		return notFoundAsList(err)
 	}
-	return fail(405, "Method not allowed for list endpoint")
+	writeJSON(w, http.StatusOK, map[string]any{"list": l})
+	return nil
+}
+
+func (s *Server) deleteList(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	if err := s.store.DeleteList(r.Context(), r.PathValue("id"), user.ID); err != nil {
+		return notFoundAsList(err)
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return nil
+}
+
+func (s *Server) addListItem(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	id, err := mangaID(r, "mangaId")
+	if err != nil {
+		return err
+	}
+	// Check ownership before ensureManga, which may call the external catalog.
+	l, err := s.store.List(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return notFoundAsList(err)
+	}
+	if l.OwnerID != user.ID {
+		return errListNotFound
+	}
+	if err = s.ensureManga(r.Context(), id); err != nil {
+		return err
+	}
+	l, err = s.store.AddListItem(r.Context(), l.ID, user.ID, id)
+	if err != nil {
+		return notFoundAsList(err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"list": l})
+	return nil
+}
+
+func (s *Server) removeListItem(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	id, err := mangaID(r, "mangaId")
+	if err != nil {
+		return err
+	}
+	l, err := s.store.RemoveListItem(r.Context(), r.PathValue("id"), user.ID, id)
+	if err != nil {
+		return notFoundAsList(err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"list": l})
+	return nil
 }

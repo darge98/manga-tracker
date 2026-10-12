@@ -32,26 +32,75 @@ type entry struct {
 	data    []byte
 	expires time.Time
 }
+
+const (
+	cacheTTL     = 30 * time.Minute
+	cacheSize    = 500
+	interval     = time.Second + 50*time.Millisecond // keeps upstream calls under 60/minute
+	maxQueueWait = 10 * time.Second
+)
+
 type Jikan struct {
 	BaseURL string
 	Client  *http.Client
-	mu      sync.Mutex
+
+	cacheMu sync.RWMutex
 	cache   map[string]entry
-	next    time.Time
+
+	slotMu sync.Mutex
+	next   time.Time // earliest start of the next upstream request
 }
 
 func NewJikan() *Jikan {
 	return &Jikan{BaseURL: "https://api.jikan.moe/v4", Client: &http.Client{Timeout: 15 * time.Second}, cache: map[string]entry{}}
 }
 
-// Serialize uncached upstream requests at <= 60/minute. Cache avoids repeated requests.
-func (p *Jikan) get(ctx context.Context, path string, out interface{}) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if c, ok := p.cache[path]; ok && time.Now().Before(c.expires) {
-		return json.Unmarshal(c.data, out)
+func (p *Jikan) cached(path string) ([]byte, bool) {
+	p.cacheMu.RLock()
+	defer p.cacheMu.RUnlock()
+	c, ok := p.cache[path]
+	return c.data, ok && time.Now().Before(c.expires)
+}
+
+// store evicts expired entries when the cache is full, then the entry closest
+// to expiry, instead of dropping the whole cache.
+func (p *Jikan) store(path string, data []byte) {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+	now := time.Now()
+	if _, exists := p.cache[path]; !exists && len(p.cache) >= cacheSize {
+		oldest := ""
+		for key, c := range p.cache {
+			if now.After(c.expires) {
+				delete(p.cache, key)
+			} else if oldest == "" || c.expires.Before(p.cache[oldest].expires) {
+				oldest = key
+			}
+		}
+		if len(p.cache) >= cacheSize {
+			delete(p.cache, oldest)
+		}
 	}
-	if delay := time.Until(p.next); delay > 0 {
+	p.cache[path] = entry{data, now.Add(cacheTTL)}
+}
+
+// reserve books the next upstream slot and waits for it. Requests that would
+// queue longer than maxQueueWait fail fast instead of piling up.
+func (p *Jikan) reserve(ctx context.Context) error {
+	p.slotMu.Lock()
+	now := time.Now()
+	slot := p.next
+	if slot.Before(now) {
+		slot = now
+	}
+	if slot.Sub(now) > maxQueueWait {
+		p.slotMu.Unlock()
+		return ErrUnavailable
+	}
+	p.next = slot.Add(interval)
+	p.slotMu.Unlock()
+
+	if delay := time.Until(slot); delay > 0 {
 		t := time.NewTimer(delay)
 		defer t.Stop()
 		select {
@@ -60,7 +109,18 @@ func (p *Jikan) get(ctx context.Context, path string, out interface{}) error {
 		case <-t.C:
 		}
 	}
-	p.next = time.Now().Add(time.Second + 50*time.Millisecond)
+	return nil
+}
+
+// get serves cached responses without waiting; only uncached requests are
+// throttled, and no lock is held during the upstream HTTP call.
+func (p *Jikan) get(ctx context.Context, path string, out any) error {
+	if data, ok := p.cached(path); ok {
+		return json.Unmarshal(data, out)
+	}
+	if err := p.reserve(ctx); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", p.BaseURL+path, nil)
 	if err != nil {
 		return err
@@ -87,10 +147,7 @@ func (p *Jikan) get(ctx context.Context, path string, out interface{}) error {
 	if response, ok := out.(interface{ valid() bool }); ok && !response.valid() {
 		return ErrUnavailable
 	}
-	if len(p.cache) > 500 {
-		p.cache = map[string]entry{}
-	}
-	p.cache[path] = entry{raw, time.Now().Add(30 * time.Minute)}
+	p.store(path, raw)
 	return nil
 }
 

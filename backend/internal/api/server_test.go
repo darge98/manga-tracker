@@ -3,21 +3,24 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"manga-track/backend/internal/auth"
 	"manga-track/backend/internal/provider"
 	"manga-track/backend/internal/repository"
+	"manga-track/backend/internal/testdb"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
+const testOrigin = "http://localhost:4200"
+
 type testCatalog struct{ offline bool }
 
-func (c *testCatalog) Search(_ context.Context, _ string, p int) (provider.Page, error) {
-	return c.Popular(context.Background(), p)
+func (c *testCatalog) Search(ctx context.Context, _ string, p int) (provider.Page, error) {
+	return c.Popular(ctx, p)
 }
 func (c *testCatalog) Popular(_ context.Context, p int) (provider.Page, error) {
 	if c.offline {
@@ -31,143 +34,221 @@ func (c *testCatalog) Detail(_ context.Context, id int) (repository.Manga, error
 	}
 	return repository.Manga{ID: id, Title: "One Piece", Genres: []string{}}, nil
 }
-func request(t *testing.T, s *Server, m, path, body string, cookie *http.Cookie, expected int) *httptest.ResponseRecorder {
+
+func newServer(store *repository.Store, catalog provider.Catalog) *Server {
+	return New(store, catalog, Config{AllowedOrigins: []string{testOrigin}})
+}
+
+func request(t *testing.T, s *Server, method, path, body string, cookie *http.Cookie, expected int) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(m, "http://localhost:8080/api/"+path, strings.NewReader(body))
+	r := httptest.NewRequest(method, "http://localhost:8080/api/"+path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("Origin", "http://localhost:4200")
+	r.Header.Set("Origin", testOrigin)
 	if cookie != nil {
 		r.AddCookie(cookie)
 	}
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if w.Code != expected {
-		t.Fatalf("%s %s expected %d got %d %s", m, path, expected, w.Code, w.Body.String())
+		t.Fatalf("%s %s expected %d got %d %s", method, path, expected, w.Code, w.Body.String())
 	}
 	return w
 }
-func TestAuthenticationPrivacyTrackingAndRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "db.json")
-	store, e := repository.Open(path)
-	if e != nil {
-		t.Fatal(e)
-	}
-	cat := &testCatalog{}
-	s := New(store, cat, Config{AllowedOrigins: []string{"http://localhost:4200"}})
-	w := request(t, s, "POST", "auth/register", `{"username":"Alice","email":"alice@example.com","password":"secure-pass-123"}`, nil, 200)
-	alice := w.Result().Cookies()[0]
-	if !alice.HttpOnly || alice.SameSite != http.SameSiteLaxMode {
-		t.Fatal("cookie flags")
-	}
-	w = request(t, s, "POST", "auth/register", `{"username":"Bob","email":"bob@example.com","password":"secure-pass-456"}`, nil, 200)
-	bob := w.Result().Cookies()[0]
-	request(t, s, "GET", "auth/me", "", alice, 200)
-	request(t, s, "GET", "library/13", "", nil, 401)
-	request(t, s, "POST", "auth/login", `{"email":"alice@example.com","password":"wrong"}`, nil, 401)
-	request(t, s, "GET", "manga?q=one", "", nil, 200)
-	request(t, s, "PUT", "library/13/chapters/12.5", `{"read":true,"rating":5,"notes":"Great ending"}`, alice, 200)
-	request(t, s, "PUT", "library/13/chapters/NaN", `{"read":true}`, alice, 400)
-	request(t, s, "PUT", "library/13/chapters/1", `{"read":true,"rating":6}`, alice, 400)
-	w = request(t, s, "GET", "library/13", "", bob, 200)
-	if strings.Contains(w.Body.String(), "Great ending") {
-		t.Fatal("feedback leaked")
-	}
-	request(t, s, "PUT", "library/13", `{"favorite":true,"toRead":true}`, alice, 200)
-	w = request(t, s, "GET", "library?kind=favorites", "", alice, 200)
-	if !strings.Contains(w.Body.String(), "One Piece") {
-		t.Fatal("favorite missing")
-	}
-	w = request(t, s, "GET", "library?kind=favorites", "", bob, 200)
-	if strings.Contains(w.Body.String(), "One Piece") {
-		t.Fatal("favorite leaked")
-	}
-	w = request(t, s, "POST", "lists", `{"name":"Hidden","description":"Mine","isPublic":false}`, alice, 201)
+
+func register(t *testing.T, s *Server, name string) *http.Cookie {
+	t.Helper()
+	body := fmt.Sprintf(`{"username":%q,"email":"%s@example.test","password":"password-%s"}`, name, strings.ToLower(name), name)
+	return request(t, s, "POST", "auth/register", body, nil, 200).Result().Cookies()[0]
+}
+
+func createList(t *testing.T, s *Server, cookie *http.Cookie, body string) string {
+	t.Helper()
 	var created struct {
 		List struct {
 			ID string `json:"id"`
 		} `json:"list"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &created)
-	id := created.List.ID
+	if err := json.Unmarshal(request(t, s, "POST", "lists", body, cookie, 201).Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	return created.List.ID
+}
+
+func TestAuthenticationAndSessions(t *testing.T) {
+	t.Parallel()
+	url := testdb.URL(t)
+	s := newServer(testdb.OpenURL(t, url), &testCatalog{})
+	alice := register(t, s, "Alice")
+	if !alice.HttpOnly || alice.SameSite != http.SameSiteLaxMode {
+		t.Fatal("session cookie must be HttpOnly and SameSite=Lax")
+	}
+	bob := register(t, s, "Bob")
+	request(t, s, "POST", "auth/register", `{"username":"Dup","email":"ALICE@example.test","password":"password-dup"}`, nil, 409)
+	me := request(t, s, "GET", "auth/me", "", alice, 200).Body.String()
+	if !strings.Contains(me, "alice@example.test") || strings.Contains(me, "pbkdf2") || strings.Contains(me, "password") {
+		t.Fatalf("auth/me must expose the user without the password hash: %s", me)
+	}
+	request(t, s, "GET", "library/13", "", nil, 401)
+	request(t, s, "POST", "auth/login", `{"email":"alice@example.test","password":"wrong"}`, nil, 401)
+	request(t, s, "POST", "auth/login", `{"email":"nobody@example.test","password":"wrong"}`, nil, 401)
+
+	// A second backend process sees sessions and their revocation immediately.
+	other := newServer(testdb.OpenURL(t, url), &testCatalog{})
+	request(t, other, "GET", "auth/me", "", bob, 200)
+	request(t, s, "POST", "auth/logout", `{}`, bob, 200)
+	request(t, other, "GET", "auth/me", "", bob, 401)
+	request(t, other, "GET", "auth/me", "", alice, 200)
+	request(t, other, "POST", "auth/login", `{"email":"bob@example.test","password":"password-Bob"}`, nil, 200)
+}
+
+func TestLibraryTrackingAndPrivacy(t *testing.T) {
+	t.Parallel()
+	catalog := &testCatalog{}
+	s := newServer(testdb.Open(t), catalog)
+	alice, bob := register(t, s, "Alice"), register(t, s, "Bob")
+
+	request(t, s, "PUT", "library/13/chapters/12.5", `{"read":true,"rating":5,"notes":"Great ending"}`, alice, 200)
+	request(t, s, "PUT", "library/13/chapters/12.5", `{"read":true,"rating":2,"notes":"Bob note"}`, bob, 200)
+	request(t, s, "PUT", "library/13/chapters/NaN", `{"read":true}`, alice, 400)
+	request(t, s, "PUT", "library/13/chapters/1e3", `{"read":true}`, alice, 400)
+	request(t, s, "PUT", "library/13/chapters/1", `{"read":true,"rating":6}`, alice, 400)
+	request(t, s, "PUT", "library/13/chapters/1", `{"rating":3}`, alice, 400)
+	if strings.Contains(request(t, s, "GET", "library/13", "", bob, 200).Body.String(), "Great ending") {
+		t.Fatal("feedback leaked across users")
+	}
+
+	// "12.50" is the same chapter as "12.5"; editing keeps the first read time.
+	var before, after repository.Library
+	json.Unmarshal(request(t, s, "GET", "library/13", "", alice, 200).Body.Bytes(), &before)
+	request(t, s, "PUT", "library/13/chapters/12.50", `{"read":true,"rating":4,"notes":"Updated"}`, alice, 200)
+	json.Unmarshal(request(t, s, "GET", "library/13", "", alice, 200).Body.Bytes(), &after)
+	if len(after.Chapters) != 1 || after.Chapters[0].Chapter != "12.5" || !after.Chapters[0].ReadAt.Equal(*before.Chapters[0].ReadAt) {
+		t.Fatalf("chapter normalization or timestamp broken: %+v", after)
+	}
+
+	request(t, s, "PUT", "library/13", `{"favorite":true,"toRead":true}`, alice, 200)
+	for _, kind := range []string{"favorites", "to-read"} {
+		if !strings.Contains(request(t, s, "GET", "library?kind="+kind, "", alice, 200).Body.String(), "One Piece") {
+			t.Fatalf("%s missing", kind)
+		}
+		if strings.Contains(request(t, s, "GET", "library?kind="+kind, "", bob, 200).Body.String(), "One Piece") {
+			t.Fatalf("%s leaked", kind)
+		}
+	}
+	request(t, s, "PUT", "library/13", `{"favorite":false}`, alice, 200)
+	if strings.Contains(request(t, s, "GET", "library?kind=favorites", "", alice, 200).Body.String(), "One Piece") {
+		t.Fatal("favorite not removed")
+	}
+	if !strings.Contains(request(t, s, "GET", "library?kind=to-read", "", alice, 200).Body.String(), "One Piece") {
+		t.Fatal("updating one flag must not reset the other")
+	}
+	request(t, s, "GET", "library?kind=other", "", alice, 400)
+
+	// Clients cannot supply catalog metadata.
+	request(t, s, "PUT", "library/99", `{"favorite":true,"manga":{"id":99,"title":"Fake"}}`, alice, 400)
+
+	catalog.offline = true
+	if !strings.Contains(request(t, s, "GET", "manga/13", "", nil, 200).Body.String(), "previously saved metadata") {
+		t.Fatal("detail should fall back to saved metadata")
+	}
+	request(t, s, "GET", "manga/777", "", nil, 503)
+	request(t, s, "PUT", "library/100", `{"favorite":true}`, alice, 503)
+	request(t, s, "PUT", "library/13/chapters/2", `{"read":true,"notes":"works offline"}`, alice, 200)
+	request(t, s, "PUT", "library/13/chapters/2", `{"read":false,"rating":null,"notes":""}`, alice, 200)
+	dash := request(t, s, "GET", "dashboard", "", alice, 200).Body.String()
+	if !strings.Contains(dash, "Updated") || !strings.Contains(dash, "temporarily unavailable") || strings.Contains(dash, "Bob note") {
+		t.Fatalf("offline dashboard must keep only the user's history: %s", dash)
+	}
+}
+
+func TestDashboardShowsLatestReadPerManga(t *testing.T) {
+	t.Parallel()
+	store := testdb.Open(t)
+	ctx := context.Background()
+	if err := store.CreateUser(ctx, repository.User{ID: "reader", Username: "Reader", Email: "reader@example.test", PasswordHash: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(ctx, auth.TokenHash("session"), "reader", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []repository.Manga{{ID: 13, Title: "One Piece"}, {ID: 2, Title: "Berserk"}} {
+		if err := store.SaveManga(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	reads := []struct {
+		manga   int
+		chapter string
+		at      time.Time
+	}{{13, "1", now.Add(-2 * time.Hour)}, {13, "12.5", now}, {2, "3", now.Add(-time.Hour)}}
+	for _, read := range reads {
+		if _, err := store.SaveChapter(ctx, "reader", read.manga, repository.Chapter{Chapter: read.chapter, Read: true}, read.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := newServer(store, &testCatalog{offline: true})
+	cookie := &http.Cookie{Name: "manga_session", Value: "session"}
+	var result struct {
+		Recent []repository.RecentRead `json:"recent"`
+	}
+	if err := json.Unmarshal(request(t, s, "GET", "dashboard", "", cookie, 200).Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Recent) != 2 || result.Recent[0].Manga.ID != 13 || result.Recent[0].Chapter != "12.5" || result.Recent[1].Manga.ID != 2 {
+		t.Fatalf("dashboard should show the latest event per manga: %+v", result.Recent)
+	}
+}
+
+func TestListsOwnershipAndPublicSharing(t *testing.T) {
+	t.Parallel()
+	s := newServer(testdb.Open(t), &testCatalog{})
+	alice, bob := register(t, s, "Alice"), register(t, s, "Bob")
+	request(t, s, "PUT", "library/13/chapters/1", `{"read":true,"rating":5,"notes":"Private note"}`, alice, 200)
+	id := createList(t, s, alice, `{"name":"Hidden","description":"Mine","isPublic":false}`)
+	request(t, s, "POST", "lists", `{"name":"  ","description":"","isPublic":false}`, alice, 400)
+
 	request(t, s, "PUT", "lists/"+id+"/items/13", `{}`, alice, 200)
+	if !strings.Contains(request(t, s, "PUT", "lists/"+id+"/items/13", `{}`, alice, 200).Body.String(), `"itemCount":1`) {
+		t.Fatal("list should deduplicate additions")
+	}
 	request(t, s, "GET", "public/lists/"+id, "", nil, 404)
-	request(t, s, "GET", "lists/"+id, "", bob, 404)
-	request(t, s, "PATCH", "lists/"+id, `{"isPublic":true}`, bob, 404)
-	request(t, s, "DELETE", "lists/"+id, "", bob, 404)
-	request(t, s, "PATCH", "lists/"+id, `{"isPublic":true}`, alice, 200)
-	w = request(t, s, "GET", "public/lists/"+id, "", nil, 200)
-	if strings.Contains(w.Body.String(), "Great ending") || strings.Contains(w.Body.String(), "alice@example") {
-		t.Fatal("private fields exposed in public list")
+	for _, call := range []struct{ method, path, body string }{
+		{"GET", "lists/" + id, ""},
+		{"PATCH", "lists/" + id, `{"isPublic":true}`},
+		{"PUT", "lists/" + id + "/items/13", `{}`},
+		{"DELETE", "lists/" + id + "/items/13", ""},
+		{"DELETE", "lists/" + id, ""},
+	} {
+		request(t, s, call.method, call.path, call.body, bob, 404)
+	}
+	if strings.Contains(request(t, s, "GET", "lists", "", bob, 200).Body.String(), "Hidden") {
+		t.Fatal("list leaked into another user's lists")
+	}
+
+	request(t, s, "PATCH", "lists/"+id, `{"name":"Shared","isPublic":true}`, alice, 200)
+	public := request(t, s, "GET", "public/lists/"+id, "", nil, 200).Body.String()
+	if !strings.Contains(public, "Shared") || !strings.Contains(public, "One Piece") {
+		t.Fatalf("public list incomplete: %s", public)
+	}
+	for _, secret := range []string{"password", "email", "ownerId", "notes", "rating", "readAt", "Private note"} {
+		if strings.Contains(public, secret) {
+			t.Fatalf("public list leaks %s", secret)
+		}
 	}
 	request(t, s, "PATCH", "lists/"+id, `{"isPublic":false}`, alice, 200)
 	request(t, s, "GET", "public/lists/"+id, "", nil, 404)
-	// A client-supplied snapshot cannot poison the shared catalog or bypass upstream failure.
-	request(t, s, "PUT", "library/99", `{"favorite":true,"manga":{"id":99,"title":"Fake client title"}}`, alice, 200)
-	w = request(t, s, "GET", "library?kind=favorites", "", alice, 200)
-	if strings.Contains(w.Body.String(), "Fake client title") {
-		t.Fatal("client metadata entered global catalog")
+	request(t, s, "DELETE", "lists/"+id+"/items/13", "", alice, 200)
+	if strings.Contains(request(t, s, "GET", "lists/"+id, "", alice, 200).Body.String(), "One Piece") {
+		t.Fatal("item removal failed")
 	}
-	// Canonical decimal ID updates one existing chapter rather than duplicating it.
-	w = request(t, s, "GET", "library/13", "", alice, 200)
-	var before repository.Library
-	json.Unmarshal(w.Body.Bytes(), &before)
-	request(t, s, "PUT", "library/13/chapters/12.50", `{"read":true,"rating":4,"notes":"Updated feedback"}`, alice, 200)
-	w = request(t, s, "GET", "library/13", "", alice, 200)
-	var after repository.Library
-	json.Unmarshal(w.Body.Bytes(), &after)
-	if len(after.Chapters) != 1 || !after.Chapters[0].ReadAt.Equal(*before.Chapters[0].ReadAt) {
-		t.Fatal("feedback changed timestamp or chapter normalization failed")
-	}
-	request(t, s, "PUT", "library/13/chapters/12.5", `{"read":true,"rating":5,"notes":"Great ending"}`, alice, 200)
-
-	cat.offline = true
-	w = request(t, s, "GET", "manga/13", "", nil, 200)
-	if !strings.Contains(w.Body.String(), "previously saved metadata") {
-		t.Fatal("detail should remain available offline")
-	}
-	request(t, s, "GET", "manga/777", "", nil, 503)
-	request(t, s, "PUT", "library/100", `{"favorite":true,"manga":{"id":100,"title":"Offline fake"}}`, alice, 503)
-	request(t, s, "PUT", "library/13/chapters/2", `{"read":true,"rating":3,"notes":"Existing metadata works offline"}`, alice, 200)
-	request(t, s, "PUT", "library/13/chapters/2", `{"read":false,"rating":null,"notes":""}`, alice, 200)
-	w = request(t, s, "GET", "dashboard", "", alice, 200)
-	if !strings.Contains(w.Body.String(), "Great ending") || !strings.Contains(w.Body.String(), "temporarily unavailable") {
-		t.Fatal("offline dashboard should preserve history")
-	}
-	store.Close()
-	store, e = repository.Open(path)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer store.Close()
-	s = New(store, cat, Config{AllowedOrigins: []string{"http://localhost:4200"}})
-	request(t, s, "GET", "auth/me", "", alice, 200)
-	w = request(t, s, "GET", "library/13", "", alice, 200)
-	if !strings.Contains(w.Body.String(), "12.5") || !strings.Contains(w.Body.String(), "Great ending") {
-		t.Fatal("tracking not persisted")
-	}
-	store.View(func(st repository.State) {
-		for key := range st.Sessions {
-			if key == alice.Value {
-				t.Fatal("raw session stored")
-			}
-		}
-		for _, u := range st.Users {
-			if strings.Contains(u.PasswordHash, "secure-pass") {
-				t.Fatal("plaintext password")
-			}
-		}
-	})
-	request(t, s, "POST", "auth/logout", `{}`, alice, 200)
-	request(t, s, "GET", "auth/me", "", alice, 401)
-	request(t, s, "POST", "auth/login", `{"email":"alice@example.com","password":"secure-pass-123"}`, nil, 200)
+	request(t, s, "DELETE", "lists/"+id, "", alice, 200)
+	request(t, s, "GET", "lists/"+id, "", alice, 404)
 }
-func TestOriginBodyAndMethodProtection(t *testing.T) {
-	st, e := repository.Open(filepath.Join(t.TempDir(), "db.json"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer st.Close()
-	s := New(st, &testCatalog{}, Config{AllowedOrigins: []string{"http://localhost:4200"}})
+
+func TestOriginBodyAndRouting(t *testing.T) {
+	t.Parallel()
+	s := newServer(testdb.Open(t), &testCatalog{})
 	r := httptest.NewRequest("POST", "http://localhost/api/auth/register", strings.NewReader(`{}`))
 	r.Header.Set("Origin", "https://evil.example")
 	w := httptest.NewRecorder()
@@ -175,56 +256,76 @@ func TestOriginBodyAndMethodProtection(t *testing.T) {
 	if w.Code != 403 {
 		t.Fatal("cross origin accepted")
 	}
-	request(t, s, "GET", "auth/login", "", nil, 405)
-	request(t, s, "POST", "auth/register", `{"username":"a","email":"bad","password":"short"}`, nil, 400)
-	request(t, s, "POST", "auth/register", `{} {}`, nil, 400)
 	r = httptest.NewRequest("POST", "http://localhost/api/auth/register", strings.NewReader(`{}`))
 	r.Header.Set("Content-Type", "text/plain")
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if w.Code != 415 {
-		t.Fatal("simple cross-site body accepted")
+		t.Fatal("non-JSON body accepted")
+	}
+	request(t, s, "POST", "auth/register", `{"username":"a","email":"bad","password":"short"}`, nil, 400)
+	request(t, s, "POST", "auth/register", `{} {}`, nil, 400)
+	request(t, s, "GET", "manga/abc", "", nil, 400)
+
+	w = request(t, s, "GET", "auth/login", "", nil, 405)
+	if !strings.Contains(w.Body.String(), `"error"`) || w.Header().Get("Allow") == "" {
+		t.Fatalf("405 must be JSON with an Allow header: %v %s", w.Header(), w.Body.String())
+	}
+	if !strings.Contains(request(t, s, "GET", "nope", "", nil, 404).Body.String(), "Endpoint not found") {
+		t.Fatal("404 must be JSON")
+	}
+	if !strings.Contains(request(t, s, "GET", "health", "", nil, 200).Body.String(), `"storage":"postgres"`) {
+		t.Fatal("health must report storage")
 	}
 }
 
-func TestDashboardLatestDistinctManga(t *testing.T) {
-	st, e := repository.Open(filepath.Join(t.TempDir(), "db.json"))
-	if e != nil {
-		t.Fatal(e)
+func TestRateLimitsUseProxyClientIP(t *testing.T) {
+	t.Parallel()
+	store := testdb.Open(t)
+	login := func(s *Server, ip string) int {
+		r := httptest.NewRequest("POST", "http://localhost/api/auth/login", strings.NewReader(`{"email":"x@example.test","password":"wrong"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Real-IP", ip)
+		r.RemoteAddr = "172.18.0.5:41000" // the reverse proxy
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w.Code
 	}
-	defer st.Close()
-	now := time.Now().UTC()
-	older := now.Add(-time.Hour)
-	oldest := now.Add(-2 * time.Hour)
-	e = st.Update(func(state *repository.State) error {
-		state.Users["reader"] = repository.User{ID: "reader", Username: "Reader"}
-		state.Sessions[auth.TokenHash("session")] = repository.Session{UserID: "reader", ExpiresAt: now.Add(time.Hour)}
-		state.Manga[13] = repository.Manga{ID: 13, Title: "One Piece"}
-		state.Manga[2] = repository.Manga{ID: 2, Title: "Berserk"}
-		state.Libraries["reader"] = map[int]repository.Library{
-			13: {MangaID: 13, Chapters: []repository.Chapter{{Chapter: "1", Read: true, ReadAt: &oldest}, {Chapter: "12.5", Read: true, ReadAt: &now}}},
-			2:  {MangaID: 2, Chapters: []repository.Chapter{{Chapter: "3", Read: true, ReadAt: &older}}},
+	behindProxy := New(store, &testCatalog{}, Config{AllowedOrigins: []string{testOrigin}, TrustProxy: true})
+	for range 15 {
+		login(behindProxy, "203.0.113.1")
+	}
+	if code := login(behindProxy, "203.0.113.1"); code != 429 {
+		t.Fatalf("16th attempt from one client: got %d", code)
+	}
+	if code := login(behindProxy, "203.0.113.2"); code != 401 {
+		t.Fatalf("other clients must not share the limit: got %d", code)
+	}
+
+	// Without TrustProxy the header is ignored (it could be forged).
+	direct := New(store, &testCatalog{}, Config{})
+	for range 15 {
+		login(direct, "203.0.113.3")
+	}
+	if code := login(direct, "203.0.113.4"); code != 429 {
+		t.Fatalf("forged X-Real-IP bypassed the limit: got %d", code)
+	}
+
+	for range 60 {
+		request(t, behindProxy, "GET", "manga?q=x", "", nil, 200)
+	}
+	request(t, behindProxy, "GET", "manga?q=x", "", nil, 429)
+}
+
+func TestDatabaseOutage(t *testing.T) {
+	t.Parallel()
+	store := testdb.Open(t)
+	s := newServer(store, &testCatalog{})
+	cookie := register(t, s, "Alice")
+	store.Close()
+	for _, path := range []string{"health", "auth/me", "public/lists/shared"} {
+		if !strings.Contains(request(t, s, "GET", path, "", cookie, 503).Body.String(), "Database temporarily unavailable") {
+			t.Fatalf("%s: outage error is not actionable", path)
 		}
-		return nil
-	})
-	if e != nil {
-		t.Fatal(e)
-	}
-	s := New(st, &testCatalog{offline: true}, Config{AllowedOrigins: []string{"http://localhost:4200"}})
-	w := request(t, s, "GET", "dashboard", "", &http.Cookie{Name: "manga_session", Value: "session"}, 200)
-	var result struct {
-		Recent []recent `json:"recent"`
-	}
-	if e = json.Unmarshal(w.Body.Bytes(), &result); e != nil {
-		t.Fatal(e)
-	}
-	if len(result.Recent) != 2 || result.Recent[0].Manga.ID != 13 || result.Recent[0].Chapter != "12.5" || result.Recent[1].Manga.ID != 2 {
-		t.Fatalf("dashboard should show latest event per manga: %+v", result.Recent)
-	}
-	w = request(t, s, "GET", "library/13", "", &http.Cookie{Name: "manga_session", Value: "session"}, 200)
-	var library repository.Library
-	json.Unmarshal(w.Body.Bytes(), &library)
-	if len(library.Chapters) != 2 {
-		t.Fatal("dashboard grouping should preserve full chapter history")
 	}
 }
