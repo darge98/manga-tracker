@@ -1,0 +1,11 @@
+.env
+.env.*
+data
+bin
+server
+*.db
+*.db-*
+*.log
+.git
+.DS_Store
+coverage*

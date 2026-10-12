@@ -1,0 +1,12 @@
+node_modules
+.angular
+dist
+out-tsc
+.tmp-tests
+coverage
+tests
+.env
+.env.*
+*.log
+.DS_Store
+.git

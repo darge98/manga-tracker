@@ -1,0 +1,28 @@
+# Dependencies and build outputs
+node_modules/
+.angular/
+dist/
+coverage/
+backend/bin/
+backend/server
+.dev/
+.tmp-tests/
+out-tsc/
+*.test
+
+# Local configuration and persisted accounts, sessions, personal diaries
+.env
+.env.*
+!.env.example
+data/
+backend/data/
+backups/
+*.db
+*.db-shm
+*.db-wal
+
+# Local logs and editor / OS files
+*.log
+.DS_Store
+.idea/
+.vscode/

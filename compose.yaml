@@ -1,0 +1,107 @@
+name: manga-track
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-manga_track}
+      POSTGRES_USER: ${POSTGRES_USER:-manga_track}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-manga_track}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-manga_track}?sslmode=disable
+      ALLOWED_ORIGINS: ${DOCKER_ALLOWED_ORIGINS:-http://localhost:${APP_PORT:-8080},http://127.0.0.1:${APP_PORT:-8080}}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+    networks:
+      - app
+      - database
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+        restart: true
+    networks:
+      - app
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 10s
+
+  testdb:
+    image: postgres:18-alpine
+    profiles: [test]
+    environment:
+      POSTGRES_DB: manga_track_test
+      POSTGRES_USER: manga_track_test
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    tmpfs:
+      - /var/lib/postgresql
+    networks:
+      - tests
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  backend-test:
+    profiles: [test]
+    build:
+      context: ./backend
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgres://manga_track_test:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@testdb:5432/manga_track_test?sslmode=disable
+    depends_on:
+      testdb:
+        condition: service_healthy
+    networks:
+      - tests
+
+
+networks:
+  app:
+  database:
+    internal: true
+  tests:
+    internal: true
+
+volumes:
+  postgres_data:

@@ -1,0 +1,117 @@
+package provider
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func TestJikanMappingNullableFieldsCacheAndError(t *testing.T) {
+	calls := 0
+	p := NewJikan()
+	p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.URL.Query().Get("q") != "one piece" {
+			t.Fatal("search encoding")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"mal_id":13,"title":"One Piece","title_english":null,"chapters":null,"score":9.2,"synopsis":"Pirates","images":{"jpg":{"large_image_url":"https://cdn.test/cover.jpg"}},"genres":[{"name":"Adventure"}],"authors":[{"name":"Oda"}]}],"pagination":{"has_next_page":true}}`))}, nil
+	})}
+	a, e := p.Search(context.Background(), "one piece", 1)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = p.Search(context.Background(), "one piece", 1)
+	if e != nil || calls != 1 {
+		t.Fatal("cache did not avoid upstream request")
+	}
+	if len(a.Items) != 1 || a.Items[0].ID != 13 || a.Items[0].Title != "One Piece" || a.Items[0].Chapters != nil || !a.HasNextPage || a.Items[0].Author != "Oda" {
+		t.Fatalf("bad mapping %+v", a)
+	}
+	p.next = time.Time{}
+	p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 429, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	})}
+	if _, e = p.Detail(context.Background(), 999); e != ErrUnavailable {
+		t.Fatalf("unexpected rate-limit error %v", e)
+	}
+	p.next = time.Time{}
+	p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	})}
+	if _, e = p.Detail(context.Background(), 999); e != ErrNotFound {
+		t.Fatal("404 not mapped")
+	}
+}
+
+func TestJikanRejectsInvalidSuccessBodiesWithoutCaching(t *testing.T) {
+	for _, body := range []string{`{}`, `{"data":null}`, `{"data":{"mal_id":14,"title":"Wrong ID"}}`, `{"data":{"mal_id":13,"title":" "}}`} {
+		p := NewJikan()
+		current := body
+		calls := 0
+		p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			calls++
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(current))}, nil
+		})}
+		if _, e := p.Detail(context.Background(), 13); e != ErrUnavailable {
+			t.Fatalf("body %s should fail, got %v", body, e)
+		}
+		if len(p.cache) != 0 {
+			t.Fatal("invalid metadata cached")
+		}
+		current = `{"data":{"mal_id":13,"title":"One Piece","chapters":null}}`
+		p.next = time.Time{}
+		if m, e := p.Detail(context.Background(), 13); e != nil || m.ID != 13 || calls != 2 {
+			t.Fatal("valid retry should succeed without stale invalid cache")
+		}
+	}
+	for _, body := range []string{`{}`, `{"data":null}`, `{"data":[{"title":"No ID"}]}`} {
+		p := NewJikan()
+		p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})}
+		if _, e := p.Search(context.Background(), "query", 1); e != ErrUnavailable {
+			t.Fatalf("invalid page %s returned %v", body, e)
+		}
+		if len(p.cache) != 0 {
+			t.Fatal("invalid page cached")
+		}
+	}
+	p := NewJikan()
+	p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[],"pagination":{"has_next_page":false}}`))}, nil
+	})}
+	if page, e := p.Search(context.Background(), "no results", 1); e != nil || len(page.Items) != 0 {
+		t.Fatal("valid empty search rejected")
+	}
+}
+func TestJikanSearchEncodingAndAdmissionInterval(t *testing.T) {
+	p := NewJikan()
+	query := "a&sfw=false#日本?"
+	calls := 0
+	p.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		values := r.URL.Query()
+		if values.Get("q") != query || values.Get("sfw") != "true" || values.Get("page") != "2" || len(values["sfw"]) != 1 {
+			t.Fatal("query escaped incorrectly")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))}, nil
+	})}
+	start := time.Now()
+	if _, e := p.Search(context.Background(), query, 2); e != nil {
+		t.Fatal(e)
+	}
+	if p.next.Sub(start) < time.Second {
+		t.Fatal("upstream admission exceeds 60/minute")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, e := p.Search(ctx, "different", 2); e != ErrUnavailable || calls != 1 {
+		t.Fatal("cancelled throttle wait should not reach upstream")
+	}
+}

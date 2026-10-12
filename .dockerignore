@@ -1,0 +1,15 @@
+.git
+.dev
+.env
+.env.*
+**/node_modules
+**/.angular
+**/dist
+**/out-tsc
+**/.tmp-tests
+**/data
+backups
+**/*.db
+**/*.db-*
+**/*.log
+.DS_Store
