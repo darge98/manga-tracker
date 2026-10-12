@@ -52,7 +52,11 @@ func run() error {
 	for i := range origins {
 		origins[i] = strings.TrimSpace(origins[i])
 	}
-	handler := api.New(store, provider.NewJikan(), api.Config{
+	clientID := os.Getenv("MAL_CLIENT_ID")
+	if clientID == "" {
+		log.Print("MAL_CLIENT_ID is not set: the manga catalog is unavailable (see README)")
+	}
+	handler := api.New(store, provider.NewMAL(clientID), api.Config{
 		AllowedOrigins: origins,
 		SecureCookie:   os.Getenv("COOKIE_SECURE") == "true",
 		TrustProxy:     os.Getenv("TRUST_PROXY") == "true",

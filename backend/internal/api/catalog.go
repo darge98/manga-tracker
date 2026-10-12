@@ -20,6 +20,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	if len(q) > 200 {
 		return fail(http.StatusBadRequest, "search_too_long", "Search is too long")
 	}
+	if q == "" {
+		return s.popular(w, r)
+	}
 	result, err := s.catalog.Search(r.Context(), q, pageParam(r))
 	if err != nil {
 		return err

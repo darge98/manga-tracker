@@ -17,7 +17,7 @@ Mutating requests validate allowed Origin whenever supplied. Cross-site browser 
 
 ## Catalog
 
-Live metadata from [Jikan v4](https://docs.api.jikan.moe/), IDs are MyAnimeList manga IDs. There is no runtime fake catalog or credential requirement. Responses are cached in process for 30 minutes (500 entries, evicting the entry closest to expiry). Cached responses are served immediately; uncached upstream requests are spaced to stay under 60/minute, and a request that would wait more than 10 seconds in that queue fails fast with 503. Public catalog endpoints and public lists are limited to 60 requests/minute per client IP (429 beyond that). Upstream outages/rate limits become 503 with an actionable message; missing manga becomes 404. Known manga detail pages fall back to the persisted metadata with a `catalogWarning` when the provider is unavailable.
+Live metadata from the official [MyAnimeList API v2](https://myanimelist.net/apiconfig/references/api/v2), authenticated with the `MAL_CLIENT_ID` client ID (no user login). IDs are MyAnimeList manga IDs. Without a client ID the catalog endpoints return 503. Search and popular titles exclude NSFW works; an empty search returns popular titles; a search MAL rejects (for example too short) returns 400 `invalid_search`. Responses are cached in process for 30 minutes (500 entries, evicting the entry closest to expiry). Cached responses are served immediately; uncached upstream requests are spaced to stay under 60/minute, and a request that would wait more than 10 seconds in that queue fails fast with 503. Public catalog endpoints and public lists are limited to 60 requests/minute per client IP (429 beyond that). Upstream outages/rate limits become 503 with an actionable message; missing manga becomes 404. Known manga detail pages fall back to the persisted metadata with a `catalogWarning` when the provider is unavailable.
 
 Manga:
 
@@ -36,11 +36,11 @@ interface Manga {
 }
 ```
 
-`chapters` is nullable metadata, never a verified list of individual chapters. Jikan supplies cover images and metadata, not manga reading pages or chapter image catalogs. UI users enter chapter numbers manually, including decimals such as 12.5; textual special chapter labels are not supported in this MVP.
+`chapters` is nullable metadata, never a verified list of individual chapters. MyAnimeList supplies cover images and metadata, not manga reading pages or chapter image catalogs. UI users enter chapter numbers manually, including decimals such as 12.5; textual special chapter labels are not supported in this MVP.
 
 | Method | Path | Response |
 |---|---|---|
-| GET | `/health` | `{status:"ok",provider:"jikan",storage:"postgres"}`, 503 if the database is unreachable |
+| GET | `/health` | `{status:"ok",provider:"myanimelist",storage:"postgres"}`, 503 if the database is unreachable |
 | GET | `/manga?q=...&page=1` | `{items:Manga[],page,hasNextPage}` |
 | GET | `/manga/popular?page=1` | same page shape |
 | GET | `/manga/:id` | `{manga:Manga,catalogWarning:string}` |
@@ -77,7 +77,7 @@ interface Library {
 
 Chapter input must be numeric >0 and <=100000, with optional decimal. Progress is isolated by authenticated user and manga. Chapter PUT replaces feedback for that chapter: omitted rating becomes null and omitted notes becomes empty. Setting read=false clears readAt. Unread chapter feedback may still be retained. Re-marking read does not alter prior readAt unless the chapter was made unread.
 
-Clients never send manga metadata (unknown fields are rejected with 400). Metadata comes exclusively from Jikan or the copy saved in the database. If the manga is not saved yet, the server fetches it before the mutation; an unavailable provider returns 503 without changing the library or list.
+Clients never send manga metadata (unknown fields are rejected with 400). Metadata comes exclusively from MyAnimeList or the copy saved in the database. If the manga is not saved yet, the server fetches it before the mutation; an unavailable provider returns 503 without changing the library or list.
 
 `recent` contains at most 12 distinct manga entries `{manga,chapter,readAt,rating,notes}`, newest read first. Each manga appears once with its latest reading event; the complete chapter history remains in `/library/:id`. `popular` is a Manga array. `catalogWarning` is an empty string normally, or a provider warning while local history still returns 200. Personal feedback is never included in public lists.
 

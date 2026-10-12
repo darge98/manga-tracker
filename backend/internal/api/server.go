@@ -184,7 +184,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) error {
 	if err := s.store.Ping(r.Context()); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "provider": "jikan", "storage": "postgres"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "provider": "myanimelist", "storage": "postgres"})
 	return nil
 }
 
@@ -216,6 +216,8 @@ func writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, errorBody("not_found", "Not found"))
 	case errors.Is(err, provider.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, errorBody("manga_not_found", "Manga not found"))
+	case errors.Is(err, provider.ErrInvalidQuery):
+		writeJSON(w, http.StatusBadRequest, errorBody("invalid_search", "The catalog rejected this search"))
 	case errors.Is(err, provider.ErrUnavailable):
 		writeJSON(w, http.StatusServiceUnavailable, errorBody("catalog_unavailable", "Catalog temporarily unavailable. Please try again."))
 	default:

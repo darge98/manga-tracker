@@ -2,6 +2,8 @@
 
 Verifica fonti: 11 ottobre 2026. Il workspace iniziale era vuoto: nessun provider o vincolo di repository preesistente.
 
+> **Aggiornamento ottobre 2026:** l'API pubblica di Jikan è stata chiusa il 1° ottobre 2026 ([annuncio](https://github.com/jikan-me/jikan-rest/issues/613)). L'app ora usa l'[API ufficiale v2 di MyAnimeList](https://myanimelist.net/apiconfig/references/api/v2), autenticata con un Client ID (`MAL_CLIENT_ID`); gli ID dei manga restano quelli MAL. La sezione seguente documenta la scelta originale.
+
 ## Provider scelto: Jikan v4
 
 [Jikan](https://docs.api.jikan.moe/) espone metadata MyAnimeList tramite REST pubblico senza credenziali. Lo [schema ufficiale del progetto](https://raw.githubusercontent.com/jikan-me/jikan-rest/master/storage/api-docs/api-docs.json) documenta:

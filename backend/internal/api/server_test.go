@@ -291,7 +291,7 @@ func TestOriginBodyAndRouting(t *testing.T) {
 	if !strings.Contains(request(t, s, "GET", "nope", "", nil, 404).Body.String(), "Endpoint not found") {
 		t.Fatal("404 must be JSON")
 	}
-	if !strings.Contains(request(t, s, "GET", "health", "", nil, 200).Body.String(), `"storage":"postgres"`) {
+	if !strings.Contains(request(t, s, "GET", "health", "", nil, 200).Body.String(), `"provider":"myanimelist","status":"ok","storage":"postgres"`) {
 		t.Fatal("health must report storage")
 	}
 }
@@ -344,5 +344,25 @@ func TestDatabaseOutage(t *testing.T) {
 		if !strings.Contains(request(t, s, "GET", path, "", cookie, 503).Body.String(), "Database temporarily unavailable") {
 			t.Fatalf("%s: outage error is not actionable", path)
 		}
+	}
+}
+
+type strictCatalog struct{ testCatalog }
+
+func (c *strictCatalog) Search(_ context.Context, q string, _ int) (provider.Page, error) {
+	if q == "" {
+		panic("empty searches must use Popular")
+	}
+	return provider.Page{}, provider.ErrInvalidQuery
+}
+
+func TestSearchRejectionAndEmptyQuery(t *testing.T) {
+	t.Parallel()
+	s := newServer(testdb.Open(t), &strictCatalog{})
+	if !strings.Contains(request(t, s, "GET", "manga?q=ab", "", nil, 400).Body.String(), `"code":"invalid_search"`) {
+		t.Fatal("rejected search must return invalid_search")
+	}
+	if !strings.Contains(request(t, s, "GET", "manga?q=%20", "", nil, 200).Body.String(), "One Piece") {
+		t.Fatal("empty search should return popular manga")
 	}
 }

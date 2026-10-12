@@ -7,9 +7,11 @@ Applicazione Angular + Go per tenere il diario delle proprie letture manga: dash
 Serve solo Docker con Docker Compose. Dalla cartella del progetto:
 
 ```bash
-cp .env.example .env   # poi cambia POSTGRES_PASSWORD
+cp .env.example .env   # poi imposta POSTGRES_PASSWORD e MAL_CLIENT_ID
 docker compose up --build -d
 ```
+
+Il catalogo usa l'API ufficiale di MyAnimeList, che richiede un Client ID gratuito. Per ottenerlo: accedi a myanimelist.net, apri [la pagina API](https://myanimelist.net/apiconfig) e crea un client (App Type: *web*); poi copia il *Client ID* in `MAL_CLIENT_ID` dentro `.env`. Senza Client ID l'app parte comunque: diario e liste funzionano, ma ricerca e catalogo rispondono "non disponibile".
 
 Aprire `http://localhost:8080`. Compose avvia il frontend Angular servito da Nginx, l'API Go e PostgreSQL 18 con un volume persistente. Solo la UI pubblica una porta sull'host; Nginx inoltra `/api` al backend. `docker compose logs -f` mostra i log, `docker compose down` arresta l'ambiente conservando i dati.
 
@@ -43,7 +45,7 @@ Senza `TEST_DATABASE_URL` i test che usano il database vengono saltati, e il mot
 
 - `backend/internal/api`: handler HTTP (`net/http.ServeMux` con pattern), validazione, ownership, rate limit.
 - `backend/internal/repository`: accesso a PostgreSQL tramite `pgx` con query mirate, e migrazioni numerate in `migrations/`, applicate all'avvio. Per cambiare lo schema si aggiunge un nuovo file `NNN_descrizione.sql`; i file già applicati non si modificano.
-- `backend/internal/provider`: client [Jikan v4](https://docs.api.jikan.moe/) con cache e limite di 60 richieste al minuto verso l'upstream.
+- `backend/internal/provider`: client dell'[API v2 di MyAnimeList](https://myanimelist.net/apiconfig/references/api/v2), con cache e meno di 60 richieste al minuto verso MAL.
 - `backend/internal/auth`: hash delle password (PBKDF2) e token di sessione.
 - `frontend/`: Angular 22 con componenti standalone.
 
@@ -51,4 +53,4 @@ Contratto completo: [docs/api.md](docs/api.md). [Ricerca e motivazioni](docs/res
 
 ## Catalogo e dati personali
 
-Il catalogo usa Jikan, un'API pubblica che espone i metadata di MyAnimeList. Tracking, autenticazione, note e liste sono gestiti dall'applicazione. Non è un lettore di scansioni né una sincronizzazione delle liste MAL. Il totale dei capitoli può essere sconosciuto, soprattutto per le serie in corso. Le liste pubbliche sono condivisibili; il diario per capitolo e il progresso personale non vengono mai condivisi.
+Il catalogo usa l'API ufficiale di MyAnimeList (fino a ottobre 2026 usava Jikan, la cui API pubblica è stata chiusa; gli ID dei manga sono gli stessi). Tracking, autenticazione, note e liste sono gestiti dall'applicazione. Non è un lettore di scansioni né una sincronizzazione delle liste MAL. Il totale dei capitoli può essere sconosciuto, soprattutto per le serie in corso. Le liste pubbliche sono condivisibili; il diario per capitolo e il progresso personale non vengono mai condivisi.

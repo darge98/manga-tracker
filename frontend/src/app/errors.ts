@@ -10,6 +10,8 @@ const messages: Record<string, string> = {
   email_taken: "Esiste già un account con questa email.",
   rate_limited: "Troppe richieste. Riprova tra un minuto.",
   search_too_long: "La ricerca è troppo lunga.",
+  invalid_search:
+    "Il catalogo non accetta questa ricerca. Prova con almeno 3 caratteri.",
   invalid_manga_id: "Manga non valido.",
   manga_not_found: "Manga non trovato.",
   invalid_chapter:
