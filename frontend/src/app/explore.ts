@@ -30,7 +30,14 @@ export class Explore {
       void this.load();
     });
   }
+  /** MyAnimeList rejects searches shorter than this; an empty search shows popular titles. */
+  readonly minSearchLength = 3;
+  tooShort() {
+    const length = [...this.query.trim()].length;
+    return length > 0 && length < this.minSearchLength;
+  }
   search() {
+    if (this.tooShort()) return;
     this.lastQuery = this.query.trim();
     this.page = 1;
     this.items.set([]);

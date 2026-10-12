@@ -8,7 +8,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
+
+// minSearchLength matches MyAnimeList, which rejects shorter queries.
+const minSearchLength = 3
 
 func pageParam(r *http.Request) int {
 	p, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -22,6 +26,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	}
 	if q == "" {
 		return s.popular(w, r)
+	}
+	if utf8.RuneCountInString(q) < minSearchLength {
+		return fail(http.StatusBadRequest, "search_too_short", "Search needs at least 3 characters")
 	}
 	result, err := s.catalog.Search(r.Context(), q, pageParam(r))
 	if err != nil {

@@ -510,6 +510,12 @@ section + section {
   gap: 12px;
   margin-bottom: 32px;
 }
+.search-hint {
+  display: block;
+  min-height: 1.4em;
+  margin: -24px 0 16px;
+  color: var(--muted);
+}
 .search-form input {
   flex: 1;
   min-width: 0;

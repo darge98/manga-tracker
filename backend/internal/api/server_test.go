@@ -329,9 +329,9 @@ func TestRateLimitsUseProxyClientIP(t *testing.T) {
 	}
 
 	for range 60 {
-		request(t, behindProxy, "GET", "manga?q=x", "", nil, 200)
+		request(t, behindProxy, "GET", "manga?q=xyz", "", nil, 200)
 	}
-	request(t, behindProxy, "GET", "manga?q=x", "", nil, 429)
+	request(t, behindProxy, "GET", "manga?q=xyz", "", nil, 429)
 }
 
 func TestDatabaseOutage(t *testing.T) {
@@ -359,7 +359,12 @@ func (c *strictCatalog) Search(_ context.Context, q string, _ int) (provider.Pag
 func TestSearchRejectionAndEmptyQuery(t *testing.T) {
 	t.Parallel()
 	s := newServer(testdb.Open(t), &strictCatalog{})
-	if !strings.Contains(request(t, s, "GET", "manga?q=ab", "", nil, 400).Body.String(), `"code":"invalid_search"`) {
+	for _, q := range []string{"ab", "%E9%80%B2%E6%92%83"} { // "ab", "進撃"
+		if !strings.Contains(request(t, s, "GET", "manga?q="+q, "", nil, 400).Body.String(), `"code":"search_too_short"`) {
+			t.Fatalf("%s: short search must be rejected before the catalog", q)
+		}
+	}
+	if !strings.Contains(request(t, s, "GET", "manga?q=abc", "", nil, 400).Body.String(), `"code":"invalid_search"`) {
 		t.Fatal("rejected search must return invalid_search")
 	}
 	if !strings.Contains(request(t, s, "GET", "manga?q=%20", "", nil, 200).Body.String(), "One Piece") {

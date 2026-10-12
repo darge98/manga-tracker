@@ -370,3 +370,24 @@ test("API errors are shown in Italian from their stable code", async () => {
   });
   globalThis.fetch = original;
 });
+
+test("searches shorter than 3 characters never reach the API", async () => {
+  const f = fixture(Explore);
+  let calls = 0;
+  f.api.request = async () => {
+    calls++;
+    return { items: [], page: 1, hasNextPage: false };
+  };
+  f.component.query = " ab ";
+  assert.equal(f.component.tooShort(), true);
+  f.component.search();
+  await tick();
+  assert.equal(calls, 0);
+  f.component.query = "";
+  assert.equal(f.component.tooShort(), false);
+  f.component.query = "abc";
+  f.component.search();
+  await tick();
+  assert.equal(calls, 1);
+  f.injector.destroy();
+});
