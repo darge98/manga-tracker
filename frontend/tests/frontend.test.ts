@@ -1,4 +1,3 @@
-import "@angular/compiler";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -13,6 +12,9 @@ import { Detail } from "../src/app/detail";
 import { Dashboard } from "../src/app/dashboard";
 import { Explore } from "../src/app/explore";
 import { Lists } from "../src/app/lists";
+import { Auth } from "../src/app/auth";
+import { requireUser } from "../src/app/app.routes";
+import { StatusPipe } from "../src/app/status.pipe";
 const manga = (id: number) => ({
   id,
   title: "Manga " + id,
@@ -390,4 +392,79 @@ test("searches shorter than 3 characters never reach the API", async () => {
   await tick();
   assert.equal(calls, 1);
   f.injector.destroy();
+});
+
+test("personal pages send anonymous visitors to sign-in and back", async () => {
+  const api = new Api();
+  // Session not checked yet: the guard must await it, as on a fresh page load.
+  let sessionChecks = 0;
+  api.session = async () => {
+    sessionChecks++;
+    await tick();
+    api.ready.set(true);
+  };
+  const router = {
+    createUrlTree: (commands: string[], extras: any) => ({ commands, extras }),
+  };
+  const injector = createEnvironmentInjector(
+    [
+      { provide: Api, useValue: api },
+      { provide: Router, useValue: router },
+    ],
+    null as any,
+  );
+  const run = () =>
+    runInInjectionContext(injector, () =>
+      requireUser({} as any, { url: "/lists/abc" } as any),
+    );
+  assert.deepEqual(await run(), {
+    commands: ["/auth"],
+    extras: { queryParams: { returnUrl: "/lists/abc" } },
+  });
+  assert.equal(sessionChecks, 1);
+  api.user.set({ id: "1", username: "lettore", email: "a@example.org" });
+  assert.equal(await run(), true);
+  injector.destroy();
+});
+
+test("sign-in only returns to paths inside the app", () => {
+  const returnUrlFor = (value: string | null) => {
+    const injector = createEnvironmentInjector(
+      [
+        { provide: Api, useValue: new Api() },
+        { provide: Router, useValue: {} },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              queryParamMap: convertToParamMap(
+                value === null ? {} : { returnUrl: value },
+              ),
+            },
+          },
+        },
+      ],
+      null as any,
+    );
+    const auth: any = runInInjectionContext(injector, () => new Auth());
+    const url = auth.returnUrl();
+    injector.destroy();
+    return url;
+  };
+  assert.equal(returnUrlFor("/manga/2"), "/manga/2");
+  assert.equal(returnUrlFor(null), "/");
+  for (const unsafe of [
+    "//evil.example",
+    "/\\evil.example",
+    "https://evil.example",
+    "javascript:alert(1)",
+  ])
+    assert.equal(returnUrlFor(unsafe), "/", unsafe);
+});
+
+test("publishing status is shown in Italian", () => {
+  const pipe = new StatusPipe();
+  assert.equal(pipe.transform("Publishing"), "In corso");
+  assert.equal(pipe.transform("Finished"), "Concluso");
+  assert.equal(pipe.transform("Something new"), "Something new");
 });

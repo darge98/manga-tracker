@@ -31,6 +31,13 @@ export interface Library {
   toRead: boolean;
   favorite: boolean;
 }
+export interface RecentRead {
+  manga: Manga;
+  chapter: string;
+  readAt: string;
+  rating: number | null;
+  notes: string;
+}
 export interface MangaList {
   id: string;
   name: string;
@@ -67,7 +74,7 @@ export class Api {
     } catch {
       throw new ApiError(0, "network");
     }
-    let data: any;
+    let data: unknown;
     try {
       data = await response.json();
     } catch {
@@ -76,7 +83,10 @@ export class Api {
     if (!response.ok) {
       if (response.status === 401 && identityVersion === this.identityVersion)
         this.setUser(null);
-      throw new ApiError(response.status, data.code ?? "");
+      throw new ApiError(
+        response.status,
+        (data as { code?: string } | null)?.code ?? "",
+      );
     }
     return data as T;
   }

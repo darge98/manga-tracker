@@ -41,10 +41,6 @@ export class Lists {
     this.message.set("");
     this.loading.set(true);
     this.error.set("");
-    if (!this.publicView && !this.api.user()) {
-      this.loading.set(false);
-      return;
-    }
     try {
       if (this.id) {
         const d = await this.api.request<{ list: MangaList; items: Manga[] }>(

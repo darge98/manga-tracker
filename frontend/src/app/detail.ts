@@ -10,8 +10,9 @@ import {
   mutate,
   readableError,
 } from "./core";
+import { StatusPipe } from "./status.pipe";
 @Component({
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, StatusPipe],
   templateUrl: "./detail.html",
 })
 export class Detail {

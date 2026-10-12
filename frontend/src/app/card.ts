@@ -1,9 +1,10 @@
 import { Component, input } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { Manga } from "./core";
+import { StatusPipe } from "./status.pipe";
 @Component({
   selector: "manga-card",
-  imports: [RouterLink],
+  imports: [RouterLink, StatusPipe],
   template: `<a class="manga-card" [routerLink]="['/manga', manga().id]"
     ><div class="cover">
       <img
@@ -17,7 +18,9 @@ import { Manga } from "./core";
       }
     </div>
     <h3>{{ manga().title }}</h3>
-    <p>{{ manga().genres.slice(0, 2).join(" · ") || manga().status }}</p></a
+    <p>
+      {{ manga().genres.slice(0, 2).join(" · ") || (manga().status | status) }}
+    </p></a
   >`,
 })
 export class MangaCard {

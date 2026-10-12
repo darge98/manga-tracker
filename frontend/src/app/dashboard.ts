@@ -1,6 +1,6 @@
 import { Component, inject, signal, effect } from "@angular/core";
 import { RouterLink } from "@angular/router";
-import { Api, Manga, readableError } from "./core";
+import { Api, Manga, RecentRead, readableError } from "./core";
 import { MangaCard } from "./card";
 @Component({
   imports: [RouterLink, MangaCard],
@@ -11,7 +11,7 @@ export class Dashboard {
   loading = signal(true);
   error = signal("");
   popular = signal<Manga[]>([]);
-  recent = signal<any[]>([]);
+  recent = signal<RecentRead[]>([]);
   loadVersion = 0;
   constructor() {
     effect(() => {
@@ -29,7 +29,7 @@ export class Dashboard {
       if (owner) {
         const d = await this.api.request<{
           popular: Manga[];
-          recent: any[];
+          recent: RecentRead[];
           catalogWarning: string;
         }>("/dashboard");
         if (version !== this.loadVersion || owner !== this.api.user()?.id)

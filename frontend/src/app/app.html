@@ -44,15 +44,15 @@
     </div>
     <div class="account">
       @if (api.user(); as user) {
-      <div class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</div>
-      <div>
-        <strong>{{ user.username }}</strong
-        ><button class="text-button" (click)="logout()">
-          Esci dall’account
-        </button>
-      </div>
+        <div class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</div>
+        <div>
+          <strong>{{ user.username }}</strong
+          ><button class="text-button" (click)="logout()">
+            Esci dall’account
+          </button>
+        </div>
       } @else {
-      <a class="button primary" routerLink="/auth">Accedi / Registrati</a>
+        <a class="button primary" routerLink="/auth">Accedi / Registrati</a>
       }
     </div>
   </aside>

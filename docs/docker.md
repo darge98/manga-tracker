@@ -17,6 +17,10 @@ Lo stack comprende Angular compilato e servito da Nginx non-root, API Go non-roo
 
 `DATABASE_URL` viene costruito da Compose. All'avvio il backend applica le migrazioni mancanti; `/api/health` verifica il database e risponde 503 se non è raggiungibile. Il backend è raggiungibile solo tramite Nginx, per questo Compose imposta `TRUST_PROXY=true`: i limiti di frequenza usano l'IP reale del client (`X-Real-IP`) invece di quello di Nginx. `COOKIE_SECURE=false` serve per HTTP locale; per HTTPS impostarlo a `true` e configurare `DOCKER_ALLOWED_ORIGINS` con gli indirizzi pubblici effettivi.
 
+### Header di sicurezza
+
+Nginx aggiunge a ogni risposta `Content-Security-Policy`, `X-Frame-Options`, `Referrer-Policy`, `X-Content-Type-Options` e `Permissions-Policy` (file `frontend/security-headers.conf`, incluso in ogni `location` che imposta header propri). La CSP ammette solo risorse dello stesso dominio, più le copertine da `cdn.myanimelist.net`. Per caricare risorse da un nuovo dominio (font, immagini, script) bisogna aggiungerlo alla direttiva corrispondente, altrimenti il browser le blocca. La build Angular di produzione ha `inlineCritical` disattivato: l'inlining del CSS critico genera uno `<style>` e uno `<script>` inline che la CSP vieterebbe.
+
 ## Operazioni quotidiane
 
 ```bash
