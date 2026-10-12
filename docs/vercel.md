@@ -37,7 +37,7 @@ Se i limiti vengono superati Vercel può mettere in pausa il progetto: tieni d'o
 
 | | Docker Compose | Vercel |
 |---|---|---|
-| Header di sicurezza | `frontend/security-headers.conf` (Nginx) | `headers` di ogni servizio in `vercel.json` |
+| Header di sicurezza | `frontend/security-headers.conf` (Nginx) | `headers` al livello principale di `vercel.json` |
 | IP del client | `X-Real-IP` impostato da Nginx | `X-Real-IP` sovrascritto da Vercel |
 | Processo del backend | sempre attivo | istanze avviate su richiesta |
 
@@ -53,7 +53,7 @@ Con la CLI di Vercel, senza account:
 DATABASE_URL='postgres://…' MAL_CLIENT_ID='…' npx vercel dev -L
 ```
 
-`vercel dev` usa il dev server di Angular per il frontend; la build di produzione si genera con `npx vercel build` (richiede un progetto collegato, `vercel link`).
+`vercel dev` usa il dev server di Angular per il frontend e non applica gli `headers` del livello principale (in produzione vengono applicati a entrambi i servizi); la build di produzione si genera con `npx vercel build` (richiede un progetto collegato, `vercel link`).
 
 ## Cambiare database in futuro
 
