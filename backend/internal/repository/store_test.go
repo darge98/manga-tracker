@@ -12,24 +12,28 @@ import (
 	"time"
 )
 
-func seed(t *testing.T, s *repository.Store, userID string, mangaIDs ...int) {
+func seed(t *testing.T, s *repository.Store, userIDs ...string) {
 	t.Helper()
-	ctx := context.Background()
-	if err := s.CreateUser(ctx, repository.User{ID: userID, Username: "User " + userID, Email: userID + "@example.test", PasswordHash: "hash"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range mangaIDs {
-		if err := s.SaveManga(ctx, repository.Manga{ID: id, Title: "Manga " + strconv.Itoa(id), Genres: []string{}}); err != nil {
+	for _, id := range userIDs {
+		if err := s.CreateUser(context.Background(), repository.User{ID: id, Username: "User " + id, Email: id + "@example.test", PasswordHash: "hash"}); err != nil {
 			t.Fatal(err)
 		}
 	}
+}
+
+// manga returns full catalog data, as the provider would.
+func manga(id int) repository.Manga {
+	return repository.Manga{ID: id, Title: "Manga " + strconv.Itoa(id), Description: "A long synopsis", Author: "Some Author", Genres: []string{"Action"}}
 }
 
 func TestMigrationsRunOnceAcrossReopen(t *testing.T) {
 	t.Parallel()
 	url := testdb.URL(t)
 	first := testdb.OpenURL(t, url)
-	seed(t, first, "a", 13)
+	seed(t, first, "a")
+	if _, err := first.SaveChapter(context.Background(), "a", manga(13), repository.Chapter{Chapter: "1", Read: true}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	second := testdb.OpenURL(t, url) // a second process re-runs migrate
 	if _, err := second.Manga(context.Background(), 13); err != nil {
 		t.Fatalf("data lost after reopening: %v", err)
@@ -71,16 +75,16 @@ func TestChapterTimestampsAndConcurrentWriters(t *testing.T) {
 	s := testdb.OpenURL(t, url)
 	other := testdb.OpenURL(t, url) // two backend processes
 	ctx := context.Background()
-	seed(t, s, "a", 13)
+	seed(t, s, "a")
 	first := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
-	if _, err := s.SaveChapter(ctx, "a", 13, repository.Chapter{Chapter: "12.5", Read: true}, first); err != nil {
+	if _, err := s.SaveChapter(ctx, "a", manga(13), repository.Chapter{Chapter: "12.5", Read: true}, first); err != nil {
 		t.Fatal(err)
 	}
-	l, err := s.SaveChapter(ctx, "a", 13, repository.Chapter{Chapter: "12.5", Read: true, Notes: "edited"}, first.Add(time.Hour))
+	l, err := s.SaveChapter(ctx, "a", manga(13), repository.Chapter{Chapter: "12.5", Read: true, Notes: "edited"}, first.Add(time.Hour))
 	if err != nil || !l.Chapters[0].ReadAt.Equal(first) || l.Chapters[0].Notes != "edited" {
 		t.Fatalf("editing feedback must keep the first read time: %v %+v", err, l)
 	}
-	l, err = s.SaveChapter(ctx, "a", 13, repository.Chapter{Chapter: "12.5", Read: false}, first)
+	l, err = s.SaveChapter(ctx, "a", manga(13), repository.Chapter{Chapter: "12.5", Read: false, Notes: "kept"}, first)
 	if err != nil || l.Chapters[0].ReadAt != nil {
 		t.Fatalf("unread must clear the read time: %v %+v", err, l)
 	}
@@ -94,7 +98,7 @@ func TestChapterTimestampsAndConcurrentWriters(t *testing.T) {
 			if i%2 == 0 {
 				target = other
 			}
-			if _, err := target.SaveChapter(ctx, "a", 13, repository.Chapter{Chapter: strconv.Itoa(i), Read: true}, time.Now()); err != nil {
+			if _, err := target.SaveChapter(ctx, "a", manga(13), repository.Chapter{Chapter: strconv.Itoa(i), Read: true}, time.Now()); err != nil {
 				t.Error(err)
 			}
 		}(i)
@@ -114,8 +118,7 @@ func TestListItemsKeepOrderUnderConcurrency(t *testing.T) {
 	s := testdb.Open(t)
 	ctx := context.Background()
 	ids := []int{1, 2, 3, 4, 5, 6, 7, 8}
-	seed(t, s, "a", ids...)
-	seed(t, s, "b")
+	seed(t, s, "a", "b")
 	if err := s.CreateList(ctx, repository.List{ID: "list", OwnerID: "a", Name: "Mine", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
@@ -124,17 +127,17 @@ func TestListItemsKeepOrderUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			if _, err := s.AddListItem(ctx, "list", "a", id); err != nil {
+			if _, err := s.AddListItem(ctx, "list", "a", manga(id)); err != nil {
 				t.Error(err)
 			}
 		}(id)
 	}
 	wg.Wait()
-	l, err := s.AddListItem(ctx, "list", "a", 1) // duplicate is a no-op
+	l, err := s.AddListItem(ctx, "list", "a", manga(1)) // duplicate is a no-op
 	if err != nil || l.ItemCount != len(ids) {
 		t.Fatalf("expected %d items: %v %+v", len(ids), err, l)
 	}
-	if _, err = s.AddListItem(ctx, "list", "b", 1); !errors.Is(err, repository.ErrNotFound) {
+	if _, err = s.AddListItem(ctx, "list", "b", manga(1)); !errors.Is(err, repository.ErrNotFound) {
 		t.Fatalf("non-owner modified the list: %v", err)
 	}
 	if err = s.DeleteList(ctx, "list", "b"); !errors.Is(err, repository.ErrNotFound) {
@@ -158,22 +161,21 @@ func TestDeleteUserCascades(t *testing.T) {
 	t.Parallel()
 	s := testdb.Open(t)
 	ctx := context.Background()
-	seed(t, s, "a", 13)
-	seed(t, s, "b")
+	seed(t, s, "a", "b")
 	session := auth.TokenHash("a-session")
 	if err := s.CreateSession(ctx, session, "a", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveChapter(ctx, "a", 13, repository.Chapter{Chapter: "1", Read: true, Notes: "x"}, time.Now()); err != nil {
+	if _, err := s.SaveChapter(ctx, "a", manga(13), repository.Chapter{Chapter: "1", Read: true, Notes: "x"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveChapter(ctx, "b", 13, repository.Chapter{Chapter: "1", Read: true}, time.Now()); err != nil {
+	if _, err := s.SaveChapter(ctx, "b", manga(13), repository.Chapter{Chapter: "1", Read: true}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateList(ctx, repository.List{ID: "list", OwnerID: "a", Name: "Mine", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddListItem(ctx, "list", "a", 13); err != nil {
+	if _, err := s.AddListItem(ctx, "list", "a", manga(13)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteUser(ctx, "a"); err != nil {

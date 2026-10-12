@@ -32,6 +32,8 @@ const messages: Record<string, string> = {
   database_unavailable:
     "The service is unavailable right now. Please try again shortly.",
   not_found: "Not found.",
+  limit_reached:
+    "You've reached the storage limit for your account. Remove some entries and try again.",
 };
 
 const byStatus: Record<number, string> = {

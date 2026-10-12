@@ -69,13 +69,29 @@ func (s *Store) UpdatePassword(ctx context.Context, userID, passwordHash, keepSe
 }
 
 // DeleteUser removes the account and, through ON DELETE CASCADE, its
-// sessions, library, chapters and lists. Shared catalog metadata stays.
+// sessions, library, chapters and lists, then prunes manga only it used.
 func (s *Store) DeleteUser(ctx context.Context, userID string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM users WHERE id=$1", userID)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
+	var referenced []int
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT manga_id FROM library WHERE user_id=$1
+			UNION SELECT i.manga_id FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.owner_id=$1`, userID)
+		if err != nil {
+			return wrap(err)
+		}
+		if referenced, err = pgx.CollectRows(rows, pgx.RowTo[int]); err != nil {
+			return wrap(err)
+		}
+		tag, err := tx.Exec(ctx, "DELETE FROM users WHERE id=$1", userID)
+		if err == nil && tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return wrap(err)
+	})
+	if err == nil {
+		s.pruneManga(ctx, referenced)
 	}
-	return wrap(err)
+	return err
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {

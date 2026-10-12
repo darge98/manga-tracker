@@ -128,10 +128,11 @@ func (s *Server) addListItem(w http.ResponseWriter, r *http.Request, user reposi
 	if l.OwnerID != user.ID {
 		return errListNotFound
 	}
-	if err = s.ensureManga(r.Context(), id); err != nil {
+	m, err := s.catalogManga(r.Context(), id)
+	if err != nil {
 		return err
 	}
-	l, err = s.store.AddListItem(r.Context(), l.ID, user.ID, id)
+	l, err = s.store.AddListItem(r.Context(), l.ID, user.ID, m)
 	if err != nil {
 		return notFoundAsList(err)
 	}

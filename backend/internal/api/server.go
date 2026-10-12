@@ -38,6 +38,7 @@ type Server struct {
 	mux       *http.ServeMux
 	authLimit *rateLimiter
 	browse    *rateLimiter
+	writes    *rateLimiter // per signed-in user
 	dummyHash string
 }
 
@@ -50,6 +51,7 @@ func New(store *repository.Store, catalog provider.Catalog, config Config) *Serv
 		mux:       http.NewServeMux(),
 		authLimit: newRateLimiter(15, time.Minute),
 		browse:    newRateLimiter(60, time.Minute),
+		writes:    newRateLimiter(120, time.Minute),
 		dummyHash: dummy,
 	}
 	s.routes()
@@ -164,12 +166,16 @@ func (s *Server) handle(fn handlerFunc) http.Handler {
 
 func (s *Server) authed(fn authedFunc) http.Handler { return s.handle(s.authedFunc(fn)) }
 
-// authedFunc resolves the signed-in user; it composes with limit.
+// authedFunc resolves the signed-in user; it composes with limit. Writes are
+// rate limited per user, which bounds how fast one account can add data.
 func (s *Server) authedFunc(fn authedFunc) handlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		user, err := s.currentUser(r)
 		if err != nil {
 			return err
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !s.writes.allow(user.ID) {
+			return fail(http.StatusTooManyRequests, "rate_limited", "Too many requests. Try again in a minute.")
 		}
 		return fn(w, r, user)
 	}
@@ -229,6 +235,8 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, repository.ErrUnavailable):
 		log.Printf("database unavailable: %v", err)
 		writeJSON(w, http.StatusServiceUnavailable, errorBody("database_unavailable", "Database temporarily unavailable. Please try again."))
+	case errors.Is(err, repository.ErrLimitReached):
+		writeJSON(w, http.StatusForbidden, errorBody("limit_reached", "Account storage limit reached"))
 	case errors.Is(err, repository.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, errorBody("not_found", "Not found"))
 	case errors.Is(err, provider.ErrNotFound):

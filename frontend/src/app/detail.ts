@@ -137,17 +137,21 @@ export class Detail {
       rating: this.rating,
       notes: this.notes,
     };
+    // An unread chapter without rating or notes is not stored: saving it removes it.
+    const removed = !body.read && body.rating === null && !body.notes;
     await this.mutate(async (current) => {
-      await this.api.request(
+      const l = await this.api.request<Library>(
         "/library/" + id + "/chapters/" + chapter,
         "PUT",
         body,
       );
       if (!current()) return;
-      const l = await this.api.request<Library>("/library/" + id);
-      if (!current()) return;
       this.library.set({ ...l, chapters: l.chapters || [] });
-      this.feedback.set("Chapter " + chapter + " saved to your journal.");
+      this.feedback.set(
+        "Chapter " +
+          chapter +
+          (removed ? " removed from your journal." : " saved to your journal."),
+      );
     });
   }
   isSaved() {

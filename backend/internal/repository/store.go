@@ -22,7 +22,8 @@ var (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	Limits Limits
 }
 
 // querier is satisfied by both the pool and a transaction, so read helpers can
@@ -58,7 +59,7 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("PostgreSQL schema migration failed: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, Limits: DefaultLimits}, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }

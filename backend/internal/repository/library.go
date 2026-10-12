@@ -44,21 +44,6 @@ type RecentRead struct {
 	Notes   string    `json:"notes"`
 }
 
-// SaveManga stores catalog metadata, skipping the write when nothing changed.
-func (s *Store) SaveManga(ctx context.Context, m Manga) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO manga(id,metadata) VALUES($1,$2)
-		ON CONFLICT(id) DO UPDATE SET metadata=EXCLUDED.metadata
-		WHERE manga.metadata IS DISTINCT FROM EXCLUDED.metadata`, m.ID, m)
-	return wrap(err)
-}
-
-func (s *Store) Manga(ctx context.Context, id int) (Manga, error) {
-	var m Manga
-	err := s.pool.QueryRow(ctx, "SELECT metadata FROM manga WHERE id=$1", id).Scan(&m)
-	return m, wrap(err)
-}
-
 // Library returns the user's progress for one manga, or an empty entry.
 func (s *Store) Library(ctx context.Context, userID string, mangaID int) (Library, error) {
 	return library(ctx, s.pool, userID, mangaID)
@@ -95,34 +80,75 @@ func library(ctx context.Context, q querier, userID string, mangaID int) (Librar
 	return l, wrap(rows.Err())
 }
 
-// SetLibraryFlags updates the flags that are not nil, creating the entry if needed.
-func (s *Store) SetLibraryFlags(ctx context.Context, userID string, mangaID int, toRead, favorite *bool) (Library, error) {
+// Empty reports whether a chapter entry carries no information: such
+// entries are deleted instead of stored.
+func (c Chapter) Empty() bool { return !c.Read && c.Rating == nil && c.Notes == "" }
+
+// SetLibraryFlags updates the flags that are not nil. An entry is created only
+// when a flag is turned on, and removed when it ends up with nothing in it.
+func (s *Store) SetLibraryFlags(ctx context.Context, userID string, m Manga, toRead, favorite *bool) (Library, error) {
 	var out Library
+	dropped := false
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO library(user_id,manga_id,to_read,favorite)
-			VALUES($1,$2,COALESCE($3::boolean,false),COALESCE($4::boolean,false))
-			ON CONFLICT(user_id,manga_id) DO UPDATE SET
-				to_read=COALESCE($3::boolean,library.to_read),
-				favorite=COALESCE($4::boolean,library.favorite)`,
-			userID, mangaID, toRead, favorite)
+		exists, err := libraryExists(ctx, tx, userID, m.ID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if !isTrue(toRead) && !isTrue(favorite) {
+				out = Library{MangaID: m.ID, Chapters: []Chapter{}}
+				return nil
+			}
+			if err = s.addLibraryEntry(ctx, tx, userID, m); err != nil {
+				return err
+			}
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE library SET to_read=COALESCE($3::boolean,to_read), favorite=COALESCE($4::boolean,favorite)
+			WHERE user_id=$1 AND manga_id=$2`, userID, m.ID, toRead, favorite)
 		if err != nil {
 			return wrap(err)
 		}
-		out, err = library(ctx, tx, userID, mangaID)
+		if dropped, err = dropEmptyLibrary(ctx, tx, userID, m.ID); err != nil {
+			return err
+		}
+		out, err = library(ctx, tx, userID, m.ID)
 		return err
 	})
+	if err == nil && dropped {
+		s.pruneManga(ctx, []int{m.ID})
+	}
 	return out, err
 }
 
 // SaveChapter replaces the feedback for one chapter. The first read timestamp
-// is kept while the chapter stays read; marking it unread clears it.
-func (s *Store) SaveChapter(ctx context.Context, userID string, mangaID int, c Chapter, now time.Time) (Library, error) {
+// is kept while the chapter stays read; marking it unread clears it. An empty
+// entry (see Chapter.Empty) deletes the chapter instead.
+func (s *Store) SaveChapter(ctx context.Context, userID string, m Manga, c Chapter, now time.Time) (Library, error) {
+	if c.Empty() {
+		return s.DeleteChapter(ctx, userID, m.ID, c.Chapter)
+	}
 	var out Library
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, "INSERT INTO library(user_id,manga_id) VALUES($1,$2) ON CONFLICT DO NOTHING", userID, mangaID)
+		exists, err := libraryExists(ctx, tx, userID, m.ID)
 		if err != nil {
+			return err
+		}
+		if !exists {
+			if err = s.addLibraryEntry(ctx, tx, userID, m); err != nil {
+				return err
+			}
+		}
+		var known bool
+		if err = tx.QueryRow(ctx, `
+			SELECT EXISTS(SELECT 1 FROM chapters WHERE user_id=$1 AND manga_id=$2 AND chapter=$3::text::numeric)`,
+			userID, m.ID, c.Chapter).Scan(&known); err != nil {
 			return wrap(err)
+		}
+		if !known {
+			if err = checkLimit(ctx, tx, s.Limits.ChaptersPerUser, "SELECT count(*) FROM chapters WHERE user_id=$1", userID); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO chapters(user_id,manga_id,chapter,is_read,read_at,rating,notes)
@@ -132,11 +158,11 @@ func (s *Store) SaveChapter(ctx context.Context, userID string, mangaID int, c C
 				read_at=CASE WHEN EXCLUDED.is_read THEN COALESCE(chapters.read_at,EXCLUDED.read_at) END,
 				rating=EXCLUDED.rating,
 				notes=EXCLUDED.notes`,
-			userID, mangaID, c.Chapter, c.Read, now, c.Rating, c.Notes)
+			userID, m.ID, c.Chapter, c.Read, now, c.Rating, c.Notes)
 		if err != nil {
 			return wrap(err)
 		}
-		out, err = library(ctx, tx, userID, mangaID)
+		out, err = library(ctx, tx, userID, m.ID)
 		return err
 	})
 	return out, err
@@ -146,15 +172,50 @@ func (s *Store) SaveChapter(ctx context.Context, userID string, mangaID int, c C
 // chapter that does not exist is not an error.
 func (s *Store) DeleteChapter(ctx context.Context, userID string, mangaID int, chapter string) (Library, error) {
 	var out Library
+	dropped := false
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, "DELETE FROM chapters WHERE user_id=$1 AND manga_id=$2 AND chapter=$3::text::numeric", userID, mangaID, chapter)
 		if err != nil {
 			return wrap(err)
 		}
+		if dropped, err = dropEmptyLibrary(ctx, tx, userID, mangaID); err != nil {
+			return err
+		}
 		out, err = library(ctx, tx, userID, mangaID)
 		return err
 	})
+	if err == nil && dropped {
+		s.pruneManga(ctx, []int{mangaID})
+	}
 	return out, err
+}
+
+func isTrue(b *bool) bool { return b != nil && *b }
+
+func libraryExists(ctx context.Context, tx pgx.Tx, userID string, mangaID int) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM library WHERE user_id=$1 AND manga_id=$2)", userID, mangaID).Scan(&exists)
+	return exists, wrap(err)
+}
+
+// addLibraryEntry creates an empty entry, storing the manga it references.
+func (s *Store) addLibraryEntry(ctx context.Context, tx pgx.Tx, userID string, m Manga) error {
+	if err := checkLimit(ctx, tx, s.Limits.LibraryPerUser, "SELECT count(*) FROM library WHERE user_id=$1", userID); err != nil {
+		return err
+	}
+	if err := storeManga(ctx, tx, m); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, "INSERT INTO library(user_id,manga_id) VALUES($1,$2) ON CONFLICT DO NOTHING", userID, m.ID)
+	return wrap(err)
+}
+
+// dropEmptyLibrary deletes the entry when it has no flag and no chapter left.
+func dropEmptyLibrary(ctx context.Context, tx pgx.Tx, userID string, mangaID int) (bool, error) {
+	tag, err := tx.Exec(ctx, `
+		DELETE FROM library l WHERE l.user_id=$1 AND l.manga_id=$2 AND NOT l.to_read AND NOT l.favorite
+		  AND NOT EXISTS (SELECT 1 FROM chapters c WHERE c.user_id=l.user_id AND c.manga_id=l.manga_id)`, userID, mangaID)
+	return tag.RowsAffected() > 0, wrap(err)
 }
 
 // Favorites and ToRead list the manga flagged in the user's library, by title.

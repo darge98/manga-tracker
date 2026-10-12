@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"manga-track/backend/internal/auth"
 	"manga-track/backend/internal/provider"
@@ -185,17 +186,13 @@ func TestDashboardShowsLatestReadPerManga(t *testing.T) {
 	if err := store.CreateSession(ctx, auth.TokenHash("session"), "reader", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []repository.Manga{{ID: 13, Title: "One Piece"}, {ID: 2, Title: "Berserk"}} {
-		if err := store.SaveManga(ctx, m); err != nil {
-			t.Fatal(err)
-		}
-	}
+	onePiece, berserk := repository.Manga{ID: 13, Title: "One Piece"}, repository.Manga{ID: 2, Title: "Berserk"}
 	now := time.Now().UTC()
 	reads := []struct {
-		manga   int
+		manga   repository.Manga
 		chapter string
 		at      time.Time
-	}{{13, "1", now.Add(-2 * time.Hour)}, {13, "12.5", now}, {2, "3", now.Add(-time.Hour)}}
+	}{{onePiece, "1", now.Add(-2 * time.Hour)}, {onePiece, "12.5", now}, {berserk, "3", now.Add(-time.Hour)}}
 	for _, read := range reads {
 		if _, err := store.SaveChapter(ctx, "reader", read.manga, repository.Chapter{Chapter: read.chapter, Read: true}, read.at); err != nil {
 			t.Fatal(err)
@@ -460,4 +457,67 @@ func TestLoginPrunesExpiredSessions(t *testing.T) {
 	if n, err := store.DeleteExpiredSessions(ctx); err != nil || n != 0 {
 		t.Fatalf("login should have pruned the expired session (left %d, %v)", n, err)
 	}
+}
+
+// countingCatalog records Detail calls, to check when the catalog is consulted.
+type countingCatalog struct {
+	testCatalog
+	details int
+}
+
+func (c *countingCatalog) Detail(ctx context.Context, id int) (repository.Manga, error) {
+	c.details++
+	return c.testCatalog.Detail(ctx, id)
+}
+
+func TestBrowsingDoesNotStoreManga(t *testing.T) {
+	t.Parallel()
+	store := testdb.Open(t)
+	catalog := &countingCatalog{}
+	s := newServer(store, catalog)
+	alice := register(t, s, "Alice")
+	request(t, s, "GET", "manga/42", "", nil, 200)
+	if _, err := store.Manga(context.Background(), 42); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("viewing a manga must not store it: %v", err)
+	}
+	// Only a referenced manga is stored, and offline its saved card data is served.
+	request(t, s, "PUT", "library/42/chapters/1", `{"read":true}`, alice, 200)
+	if _, err := store.Manga(context.Background(), 42); err != nil {
+		t.Fatal(err)
+	}
+	// An empty chapter is a deletion and needs no catalog call.
+	before := catalog.details
+	request(t, s, "PUT", "library/42/chapters/1", `{"read":false}`, alice, 200)
+	if catalog.details != before {
+		t.Fatal("deleting through an empty chapter must not call the catalog")
+	}
+	if _, err := store.Manga(context.Background(), 42); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatal("the manga must be pruned once nothing references it")
+	}
+	// Turning a flag off on a manga never added needs no catalog call either.
+	request(t, s, "PUT", "library/43", `{"favorite":false}`, alice, 200)
+	if catalog.details != before {
+		t.Fatal("turning a flag off must not call the catalog")
+	}
+}
+
+func TestLimitsAndWriteRateLimit(t *testing.T) {
+	t.Parallel()
+	store := testdb.Open(t)
+	store.Limits = repository.Limits{ChaptersPerUser: 1, LibraryPerUser: 10, ListsPerUser: 10, ItemsPerList: 10}
+	s := newServer(store, &testCatalog{})
+	alice := register(t, s, "Alice")
+	request(t, s, "PUT", "library/13/chapters/1", `{"read":true}`, alice, 200)
+	w := request(t, s, "PUT", "library/13/chapters/2", `{"read":true}`, alice, 403)
+	if !strings.Contains(w.Body.String(), `"code":"limit_reached"`) {
+		t.Fatalf("limit error: %s", w.Body.String())
+	}
+
+	s.writes = newRateLimiter(2, time.Minute)
+	request(t, s, "PUT", "library/13", `{"favorite":true}`, alice, 200)
+	request(t, s, "PUT", "library/13", `{"favorite":false}`, alice, 200)
+	if !strings.Contains(request(t, s, "PUT", "library/13", `{"favorite":true}`, alice, 429).Body.String(), "rate_limited") {
+		t.Fatal("writes beyond the limit must be rejected")
+	}
+	request(t, s, "GET", "library/13", "", alice, 200) // reads are not limited
 }

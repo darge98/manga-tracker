@@ -47,8 +47,9 @@ func (s *Server) popular(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// mangaDetail stores fresh metadata so the page keeps working, with a warning,
-// when the catalog is down.
+// mangaDetail always reads the catalog. It refreshes the stored entry of a
+// manga some user references (never creating one: browsing must not grow the
+// database) and falls back to that entry, with a warning, when the catalog is down.
 func (s *Server) mangaDetail(w http.ResponseWriter, r *http.Request) error {
 	id, err := mangaID(r, "id")
 	if err != nil {
@@ -58,7 +59,7 @@ func (s *Server) mangaDetail(w http.ResponseWriter, r *http.Request) error {
 	m, err := s.catalog.Detail(r.Context(), id)
 	switch {
 	case err == nil:
-		if err = s.store.SaveManga(r.Context(), m); err != nil {
+		if err = s.store.RefreshManga(r.Context(), m); err != nil {
 			return err
 		}
 	case errors.Is(err, provider.ErrUnavailable):
@@ -77,16 +78,13 @@ func (s *Server) mangaDetail(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// ensureManga makes sure metadata exists before a library or list row
-// references it. Metadata always comes from the catalog, never from clients.
-func (s *Server) ensureManga(ctx context.Context, id int) error {
-	_, err := s.store.Manga(ctx, id)
+// catalogManga returns the manga about to be referenced by a library entry or
+// list: the stored entry if any, otherwise the catalog's. Metadata always
+// comes from the catalog, never from clients.
+func (s *Server) catalogManga(ctx context.Context, id int) (repository.Manga, error) {
+	m, err := s.store.Manga(ctx, id)
 	if !errors.Is(err, repository.ErrNotFound) {
-		return err
+		return m, err
 	}
-	m, err := s.catalog.Detail(ctx, id)
-	if err != nil {
-		return err
-	}
-	return s.store.SaveManga(ctx, m)
+	return s.catalog.Detail(ctx, id)
 }

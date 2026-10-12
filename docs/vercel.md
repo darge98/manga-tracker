@@ -43,6 +43,8 @@ Se i limiti vengono superati Vercel può mettere in pausa il progetto: tieni d'o
 
 I due insiemi di header devono restare identici: la CI lo controlla con `node scripts/check-security-headers.mjs`.
 
+Spazio su Neon (0,5 GB): il database contiene i dati degli utenti e, per i soli manga usati da qualcuno, i dati delle schede (circa 370 byte ciascuno, senza sinossi). Il diario dei capitoli pesa circa 175 byte per capitolo, indici compresi. I limiti per account (`repository.DefaultLimits`) impediscono a un singolo utente di riempire il database. Lo spazio occupato si controlla nella console di Neon.
+
 Rate limit, cache e coda verso MyAnimeList vivono in memoria e quindi valgono per singola istanza del backend. Con traffico basso non è un problema; se il traffico cresce conviene spostarli nel database. Le sessioni scadute vengono eliminate a ogni login, perché su Vercel non c'è un processo sempre attivo che possa farlo periodicamente.
 
 ## Provare la configurazione in locale

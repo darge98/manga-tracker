@@ -54,16 +54,22 @@ func (s *Server) setLibraryFlags(w http.ResponseWriter, r *http.Request, user re
 	if err = decode(w, r, &body); err != nil {
 		return err
 	}
-	if err = s.ensureManga(r.Context(), id); err != nil {
-		return err
+	// Only turning a flag on can create an entry and so needs catalog data.
+	m := repository.Manga{ID: id}
+	if isTrue(body.ToRead) || isTrue(body.Favorite) {
+		if m, err = s.catalogManga(r.Context(), id); err != nil {
+			return err
+		}
 	}
-	l, err := s.store.SetLibraryFlags(r.Context(), user.ID, id, body.ToRead, body.Favorite)
+	l, err := s.store.SetLibraryFlags(r.Context(), user.ID, m, body.ToRead, body.Favorite)
 	if err != nil {
 		return err
 	}
 	writeJSON(w, http.StatusOK, l)
 	return nil
 }
+
+func isTrue(b *bool) bool { return b != nil && *b }
 
 // chapterNumber accepts positive decimals such as "12.5" and returns their
 // canonical form, so "12.50" and "12.5" address the same chapter.
@@ -95,11 +101,18 @@ func (s *Server) saveChapter(w http.ResponseWriter, r *http.Request, user reposi
 	if body.Read == nil || len(body.Notes) > 5000 || body.Rating != nil && (*body.Rating < 1 || *body.Rating > 5) {
 		return fail(http.StatusBadRequest, "invalid_chapter_feedback", "Provide read, optional rating 1–5, and notes up to 5000 characters")
 	}
-	if err = s.ensureManga(r.Context(), id); err != nil {
-		return err
-	}
 	c := repository.Chapter{Chapter: chapter, Read: *body.Read, Rating: body.Rating, Notes: body.Notes}
-	l, err := s.store.SaveChapter(r.Context(), user.ID, id, c, time.Now().UTC())
+	var l repository.Library
+	if c.Empty() {
+		// An unread chapter without rating or notes is not stored.
+		l, err = s.store.DeleteChapter(r.Context(), user.ID, id, chapter)
+	} else {
+		var m repository.Manga
+		if m, err = s.catalogManga(r.Context(), id); err != nil {
+			return err
+		}
+		l, err = s.store.SaveChapter(r.Context(), user.ID, m, c, time.Now().UTC())
+	}
 	if err != nil {
 		return err
 	}

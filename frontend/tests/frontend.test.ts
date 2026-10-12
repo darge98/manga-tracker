@@ -127,13 +127,11 @@ test("chapter feedback supports unread decimal chapters independently of catalog
   f.component.rating = 4;
   f.component.notes = "A scene to remember";
   let payload: any;
-  let path = "";
+  const calls: string[] = [];
+  // The PUT response is the updated library: no second request is needed.
   f.api.request = async (p: string, method = "GET", body?: any) => {
-    if (method === "PUT") {
-      path = p;
-      payload = body;
-      return {};
-    }
+    calls.push(method + " " + p);
+    payload = body;
     return {
       mangaId: 1,
       chapters: [
@@ -144,7 +142,9 @@ test("chapter feedback supports unread decimal chapters independently of catalog
     };
   };
   await f.component.saveChapter();
-  assert.equal(path, "/library/1/chapters/12.5");
+  assert.deepEqual(calls, ["PUT /library/1/chapters/12.5"]);
+  assert.equal(f.component.library().chapters[0].notes, "A scene to remember");
+  assert.match(f.component.feedback(), /saved to your journal/);
   assert.equal(payload.read, false);
   assert.equal(payload.rating, 4);
   assert.equal(payload.notes, "A scene to remember");
@@ -519,5 +519,25 @@ test("account: deletion asks for confirmation, then signs out", async () => {
   assert.equal(call, 'DELETE /auth/account {"password":"password-123"}');
   assert.equal(f.api.user(), null);
   assert.equal(navigated, "/");
+  f.injector.destroy();
+});
+
+test("saving an empty unread chapter reports it as removed", async () => {
+  const f = fixture(Detail);
+  f.component.id = 1;
+  f.component.manga.set(manga(1));
+  f.component.chapter = 3;
+  f.component.read = false;
+  f.component.rating = null;
+  f.component.notes = "";
+  f.api.request = async () => ({
+    mangaId: 1,
+    chapters: [],
+    toRead: false,
+    favorite: false,
+  });
+  await f.component.saveChapter();
+  assert.equal(f.component.feedback(), "Chapter 3 removed from your journal.");
+  assert.equal(f.component.library().chapters.length, 0);
   f.injector.destroy();
 });

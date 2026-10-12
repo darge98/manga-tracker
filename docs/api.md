@@ -19,7 +19,7 @@ Mutating requests validate allowed Origin whenever supplied. Cross-site browser 
 
 ## Catalog
 
-Live metadata from the official [MyAnimeList API v2](https://myanimelist.net/apiconfig/references/api/v2), authenticated with the `MAL_CLIENT_ID` client ID (no user login). IDs are MyAnimeList manga IDs. Without a client ID the catalog endpoints return 503. Search and popular titles exclude NSFW works; an empty search returns popular titles; a search shorter than 3 characters returns 400 `search_too_short` without calling MAL; any other search MAL rejects returns 400 `invalid_search`. Responses are cached in process for 30 minutes (500 entries, evicting the entry closest to expiry). Cached responses are served immediately; uncached upstream requests are spaced to stay under 60/minute, and a request that would wait more than 10 seconds in that queue fails fast with 503. Public catalog endpoints and public lists are limited to 60 requests/minute per client IP (429 beyond that). Upstream outages/rate limits become 503 with an actionable message; missing manga becomes 404. Known manga detail pages fall back to the persisted metadata with a `catalogWarning` when the provider is unavailable.
+Live metadata from the official [MyAnimeList API v2](https://myanimelist.net/apiconfig/references/api/v2), authenticated with the `MAL_CLIENT_ID` client ID (no user login). IDs are MyAnimeList manga IDs. Without a client ID the catalog endpoints return 503. Search and popular titles exclude NSFW works; an empty search returns popular titles; a search shorter than 3 characters returns 400 `search_too_short` without calling MAL; any other search MAL rejects returns 400 `invalid_search`. Responses are cached in process for 30 minutes (500 entries, evicting the entry closest to expiry). Cached responses are served immediately; uncached upstream requests are spaced to stay under 60/minute, and a request that would wait more than 10 seconds in that queue fails fast with 503. Public catalog endpoints and public lists are limited to 60 requests/minute per client IP (429 beyond that). Upstream outages/rate limits become 503 with an actionable message; missing manga becomes 404. Detail pages of manga that some user references fall back to the stored card data (no synopsis or authors) with a `catalogWarning` when the provider is unavailable.
 
 Manga:
 
@@ -47,7 +47,7 @@ interface Manga {
 | GET | `/manga/popular?page=1` | same page shape |
 | GET | `/manga/:id` | `{manga:Manga,catalogWarning:string}` |
 
-Page size 24. Search includes `sfw=true`; query max 200 bytes. Catalog endpoints are public. Detail pages persist the fetched metadata, so known manga stay available during an upstream outage.
+Page size 24. Query max 200 bytes. Catalog endpoints are public. Browsing never stores anything: viewing a detail page only refreshes the stored entry of a manga that is already referenced.
 
 ## Personal library and dashboard
 
@@ -77,9 +77,13 @@ interface Library {
 | GET | `/library?kind=to-read` | — | `{items:Manga[]}` |
 | GET | `/dashboard` | — | `{recent,popular,catalogWarning}` |
 
-Chapter input must be numeric >0 and <=100000, with optional decimal. Progress is isolated by authenticated user and manga. Chapter PUT replaces feedback for that chapter: omitted rating becomes null and omitted notes becomes empty. Setting read=false clears readAt. Unread chapter feedback may still be retained. Re-marking read does not alter prior readAt unless the chapter was made unread.
+Chapter input must be numeric >0 and <=100000, with optional decimal. Progress is isolated by authenticated user and manga. Chapter PUT replaces feedback for that chapter: omitted rating becomes null and omitted notes becomes empty. Setting read=false clears readAt. Unread chapter feedback (rating or notes) is retained; an unread chapter with neither is not stored, so saving it deletes the chapter. Re-marking read does not alter prior readAt unless the chapter was made unread.
 
 Clients never send manga metadata (unknown fields are rejected with 400). Metadata comes exclusively from MyAnimeList or the copy saved in the database. If the manga is not saved yet, the server fetches it before the mutation; an unavailable provider returns 503 without changing the library or list.
+
+**Storage.** The database keeps user data plus a lean copy of the catalog: for each manga referenced by a library entry or list it stores only what cards and lists display (id, title, cover, chapters, status, genres, score, MAL URL), never synopsis or authors. An entry is stored when a user first references the manga and deleted as soon as nothing references it. A library entry with no flag and no chapter is deleted too.
+
+**Limits.** Per account: 20,000 chapters, 2,000 library entries, 100 lists and 500 manga per list. Exceeding one returns 403 `limit_reached`; updating existing data is always allowed. Signed-in writes (PUT, POST, PATCH, DELETE) are limited to 120/minute per account (429 `rate_limited`).
 
 `recent` contains at most 12 distinct manga entries `{manga,chapter,readAt,rating,notes}`, newest read first. Each manga appears once with its latest reading event; the complete chapter history remains in `/library/:id`. `popular` is a Manga array. `catalogWarning` is an empty string normally, or a provider warning while local history still returns 200. Personal feedback is never included in public lists.
 
