@@ -70,6 +70,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/library/{id}", s.authed(s.getLibrary))
 	s.mux.Handle("PUT /api/library/{id}", s.authed(s.setLibraryFlags))
 	s.mux.Handle("PUT /api/library/{id}/chapters/{chapter}", s.authed(s.saveChapter))
+	s.mux.Handle("DELETE /api/library/{id}/chapters/{chapter}", s.authed(s.deleteChapter))
 
 	s.mux.Handle("GET /api/lists", s.authed(s.ownLists))
 	s.mux.Handle("POST /api/lists", s.authed(s.createList))
@@ -86,7 +87,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	origin := r.Header.Get("Origin")
 	if origin != "" && !slices.Contains(s.config.AllowedOrigins, origin) {
-		writeJSON(w, http.StatusForbidden, errorBody("Origin is not allowed"))
+		writeJSON(w, http.StatusForbidden, errorBody("origin_not_allowed", "Origin is not allowed"))
 		return
 	}
 	if origin != "" {
@@ -94,7 +95,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Vary", "Origin")
 	} else if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-		writeJSON(w, http.StatusForbidden, errorBody("Cross-site request denied"))
+		writeJSON(w, http.StatusForbidden, errorBody("cross_site_denied", "Cross-site request denied"))
 		return
 	}
 	if r.Method == http.MethodOptions {
@@ -119,10 +120,10 @@ func (s *Server) notRouted(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(probe, r)
 	if probe.status == http.StatusMethodNotAllowed {
 		w.Header().Set("Allow", probe.header.Get("Allow"))
-		writeJSON(w, http.StatusMethodNotAllowed, errorBody("Method not allowed"))
+		writeJSON(w, http.StatusMethodNotAllowed, errorBody("method_not_allowed", "Method not allowed"))
 		return
 	}
-	writeJSON(w, http.StatusNotFound, errorBody("Endpoint not found"))
+	writeJSON(w, http.StatusNotFound, errorBody("endpoint_not_found", "Endpoint not found"))
 }
 
 type statusProbe struct {
@@ -160,7 +161,7 @@ func (s *Server) authed(fn authedFunc) http.Handler {
 func (s *Server) limit(limiter *rateLimiter, fn handlerFunc) http.Handler {
 	return s.handle(func(w http.ResponseWriter, r *http.Request) error {
 		if !limiter.allow(s.clientIP(r)) {
-			return fail(http.StatusTooManyRequests, "Too many requests. Try again in a minute.")
+			return fail(http.StatusTooManyRequests, "rate_limited", "Too many requests. Try again in a minute.")
 		}
 		return fn(w, r)
 	})
@@ -187,34 +188,39 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// apiError carries a stable machine-readable code, which clients translate,
+// and an English message for API consumers.
 type apiError struct {
 	status  int
+	code    string
 	message string
 }
 
 func (e apiError) Error() string { return e.message }
 
-func fail(status int, message string) error { return apiError{status, message} }
+func fail(status int, code, message string) error { return apiError{status, code, message} }
 
-func errorBody(message string) map[string]string { return map[string]string{"error": message} }
+func errorBody(code, message string) map[string]string {
+	return map[string]string{"code": code, "error": message}
+}
 
 func writeError(w http.ResponseWriter, err error) {
 	var ae apiError
 	switch {
 	case errors.As(err, &ae):
-		writeJSON(w, ae.status, errorBody(ae.message))
+		writeJSON(w, ae.status, errorBody(ae.code, ae.message))
 	case errors.Is(err, repository.ErrUnavailable):
 		log.Printf("database unavailable: %v", err)
-		writeJSON(w, http.StatusServiceUnavailable, errorBody("Database temporarily unavailable. Please try again."))
+		writeJSON(w, http.StatusServiceUnavailable, errorBody("database_unavailable", "Database temporarily unavailable. Please try again."))
 	case errors.Is(err, repository.ErrNotFound):
-		writeJSON(w, http.StatusNotFound, errorBody("Not found"))
+		writeJSON(w, http.StatusNotFound, errorBody("not_found", "Not found"))
 	case errors.Is(err, provider.ErrNotFound):
-		writeJSON(w, http.StatusNotFound, errorBody("Manga not found"))
+		writeJSON(w, http.StatusNotFound, errorBody("manga_not_found", "Manga not found"))
 	case errors.Is(err, provider.ErrUnavailable):
-		writeJSON(w, http.StatusServiceUnavailable, errorBody("Catalog temporarily unavailable. Please try again."))
+		writeJSON(w, http.StatusServiceUnavailable, errorBody("catalog_unavailable", "Catalog temporarily unavailable. Please try again."))
 	default:
 		log.Printf("request failed: %v", err)
-		writeJSON(w, http.StatusInternalServerError, errorBody("Unable to save or load data"))
+		writeJSON(w, http.StatusInternalServerError, errorBody("internal_error", "Unable to save or load data"))
 	}
 }
 
@@ -228,15 +234,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // content type also blocks cross-site HTML form submissions.
 func decode(w http.ResponseWriter, r *http.Request, v any) error {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		return fail(http.StatusUnsupportedMediaType, "Use Content-Type: application/json")
+		return fail(http.StatusUnsupportedMediaType, "unsupported_media_type", "Use Content-Type: application/json")
 	}
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {
-		return fail(http.StatusBadRequest, "Invalid JSON body")
+		return fail(http.StatusBadRequest, "invalid_json", "Invalid JSON body")
 	}
 	if err := d.Decode(&struct{}{}); err != io.EOF {
-		return fail(http.StatusBadRequest, "Invalid JSON body")
+		return fail(http.StatusBadRequest, "invalid_json", "Invalid JSON body")
 	}
 	return nil
 }
@@ -244,7 +250,7 @@ func decode(w http.ResponseWriter, r *http.Request, v any) error {
 func mangaID(r *http.Request, name string) (int, error) {
 	n, err := strconv.Atoi(r.PathValue(name))
 	if err != nil || n < 1 {
-		return 0, fail(http.StatusBadRequest, "Invalid manga ID")
+		return 0, fail(http.StatusBadRequest, "invalid_manga_id", "Invalid manga ID")
 	}
 	return n, nil
 }

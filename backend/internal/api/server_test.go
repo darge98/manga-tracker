@@ -126,6 +126,20 @@ func TestLibraryTrackingAndPrivacy(t *testing.T) {
 		t.Fatalf("chapter normalization or timestamp broken: %+v", after)
 	}
 
+	// Deleting is per user, canonicalizes the number and is idempotent.
+	request(t, s, "PUT", "library/13/chapters/7", `{"read":true}`, alice, 200)
+	request(t, s, "DELETE", "library/13/chapters/7.0", "", bob, 200)
+	if !strings.Contains(request(t, s, "GET", "library/13", "", alice, 200).Body.String(), `"chapter":"7"`) {
+		t.Fatal("another user deleted the chapter")
+	}
+	var afterDelete repository.Library
+	json.Unmarshal(request(t, s, "DELETE", "library/13/chapters/7.0", "", alice, 200).Body.Bytes(), &afterDelete)
+	if len(afterDelete.Chapters) != 1 || afterDelete.Chapters[0].Chapter != "12.5" {
+		t.Fatalf("chapter not deleted: %+v", afterDelete)
+	}
+	request(t, s, "DELETE", "library/13/chapters/7", "", alice, 200)
+	request(t, s, "DELETE", "library/13/chapters/abc", "", alice, 400)
+
 	request(t, s, "PUT", "library/13", `{"favorite":true,"toRead":true}`, alice, 200)
 	for _, kind := range []string{"favorites", "to-read"} {
 		if !strings.Contains(request(t, s, "GET", "library?kind="+kind, "", alice, 200).Body.String(), "One Piece") {
@@ -267,6 +281,9 @@ func TestOriginBodyAndRouting(t *testing.T) {
 	request(t, s, "POST", "auth/register", `{} {}`, nil, 400)
 	request(t, s, "GET", "manga/abc", "", nil, 400)
 
+	if !strings.Contains(request(t, s, "POST", "auth/register", `{"username":"Dup","email":"x","password":"short"}`, nil, 400).Body.String(), `"code":"invalid_registration"`) {
+		t.Fatal("errors must carry a stable code")
+	}
 	w = request(t, s, "GET", "auth/login", "", nil, 405)
 	if !strings.Contains(w.Body.String(), `"error"`) || w.Header().Get("Allow") == "" {
 		t.Fatalf("405 must be JSON with an Allow header: %v %s", w.Header(), w.Body.String())

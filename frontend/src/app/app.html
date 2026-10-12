@@ -1,0 +1,73 @@
+<a class="skip" href="#main">Vai al contenuto</a>
+<div class="shell">
+  <aside class="sidebar">
+    <a routerLink="/" class="brand"
+      ><span class="brand-mark">M</span>MangaTrack<span class="brand-period"
+        >.</span
+      ></a
+    >
+    <p class="nav-label">IL TUO SPAZIO</p>
+    <nav aria-label="Navigazione principale">
+      <a
+        routerLink="/"
+        [routerLinkActiveOptions]="{ exact: true }"
+        routerLinkActive="active"
+        ariaCurrentWhenActive="page"
+        ><span aria-hidden="true">▦</span> Panoramica</a
+      ><a
+        routerLink="/explore"
+        routerLinkActive="active"
+        ariaCurrentWhenActive="page"
+        ><span aria-hidden="true">⌕</span> Esplora manga</a
+      ><a
+        routerLink="/library/to-read"
+        routerLinkActive="active"
+        ariaCurrentWhenActive="page"
+        ><span aria-hidden="true">▤</span> Da leggere</a
+      ><a
+        routerLink="/library/favorites"
+        routerLinkActive="active"
+        ariaCurrentWhenActive="page"
+        ><span aria-hidden="true">♡</span> Preferiti</a
+      ><a
+        routerLink="/lists"
+        routerLinkActive="active"
+        ariaCurrentWhenActive="page"
+        ><span aria-hidden="true">≡</span> Le mie liste</a
+      >
+    </nav>
+    <div class="sidebar-note">
+      <span class="note-line"></span><strong>Una storia alla volta.</strong>
+      <p>
+        Tieni il segno, raccogli le tue impressioni e trova la prossima lettura.
+      </p>
+    </div>
+    <div class="account">
+      @if (api.user(); as user) {
+        <div class="avatar">
+          {{ user.username.slice(0, 1).toUpperCase() }}
+        </div>
+        <div>
+          <strong>{{ user.username }}</strong
+          ><button class="text-button" (click)="logout()">
+            Esci dall’account
+          </button>
+        </div>
+      } @else {
+        <a class="button primary" routerLink="/auth">Accedi / Registrati</a>
+      }
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <span>La tua biblioteca, capitolo dopo capitolo.</span
+      ><a routerLink="/explore" class="top-search"
+        >Cerca un manga <span aria-hidden="true">⌕</span></a
+      >
+    </header>
+    <main id="main" tabindex="-1"><router-outlet /></main>
+    <footer>
+      MangaTrack <span>Catalogo fornito da MyAnimeList tramite Jikan.</span>
+    </footer>
+  </div>
+</div>

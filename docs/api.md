@@ -1,6 +1,6 @@
 # Manga Track API
 
-Go 1.26, base URL `http://localhost:8080/api` (through the Nginx frontend). JSON camelCase. Errors: `{"error":"Human readable message"}`. All request bodies use `Content-Type: application/json`. Browser requests use `credentials: 'include'` (Angular `withCredentials: true`). No bearer token.
+Go 1.26, base URL `http://localhost:8080/api` (through the Nginx frontend). JSON camelCase. Errors: `{"code":"email_taken","error":"Human readable message"}`. `code` is stable and meant for clients (the frontend translates it); `error` is English text for API consumers. All request bodies use `Content-Type: application/json`. Browser requests use `credentials: 'include'` (Angular `withCredentials: true`). No bearer token.
 
 ## Authentication
 
@@ -70,6 +70,7 @@ interface Library {
 | GET | `/library/:id` | — | `Library` (empty default for unseen manga) |
 | PUT | `/library/:id` | `{toRead?,favorite?}` | updated `Library`; omitted flags are unchanged |
 | PUT | `/library/:id/chapters/:chapter` | `{read,rating?,notes?}` | updated `Library` |
+| DELETE | `/library/:id/chapters/:chapter` | — | updated `Library`; deleting a missing chapter is not an error |
 | GET | `/library?kind=favorites` | — | `{items:Manga[]}` |
 | GET | `/library?kind=to-read` | — | `{items:Manga[]}` |
 | GET | `/dashboard` | — | `{recent,popular,catalogWarning}` |

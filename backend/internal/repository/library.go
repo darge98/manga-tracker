@@ -142,6 +142,21 @@ func (s *Store) SaveChapter(ctx context.Context, userID string, mangaID int, c C
 	return out, err
 }
 
+// DeleteChapter removes one chapter's progress and feedback; deleting a
+// chapter that does not exist is not an error.
+func (s *Store) DeleteChapter(ctx context.Context, userID string, mangaID int, chapter string) (Library, error) {
+	var out Library
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "DELETE FROM chapters WHERE user_id=$1 AND manga_id=$2 AND chapter=$3::text::numeric", userID, mangaID, chapter)
+		if err != nil {
+			return wrap(err)
+		}
+		out, err = library(ctx, tx, userID, mangaID)
+		return err
+	})
+	return out, err
+}
+
 // Favorites and ToRead list the manga flagged in the user's library, by title.
 func (s *Store) Favorites(ctx context.Context, userID string) ([]Manga, error) {
 	return s.flagged(ctx, "SELECT m.metadata FROM library l JOIN manga m ON m.id=l.manga_id WHERE l.user_id=$1 AND l.favorite ORDER BY m.metadata->>'title', m.id", userID)

@@ -28,7 +28,7 @@ func (s *Server) decodeCredentials(w http.ResponseWriter, r *http.Request) (cred
 	}
 	c.Email = strings.ToLower(strings.TrimSpace(c.Email))
 	if len(c.Password) > 256 {
-		return c, fail(http.StatusBadRequest, "Password is too long")
+		return c, fail(http.StatusBadRequest, "password_too_long", "Password is too long")
 	}
 	return c, nil
 }
@@ -41,7 +41,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	c.Username = strings.TrimSpace(c.Username)
 	parsed, err := mail.ParseAddress(c.Email)
 	if err != nil || parsed.Address != c.Email || len(c.Email) > 254 || len(c.Username) < 2 || len(c.Username) > 50 || len(c.Password) < 10 {
-		return fail(http.StatusBadRequest, "Enter a valid email, username (2–50 characters) and password (at least 10 characters)")
+		return fail(http.StatusBadRequest, "invalid_registration", "Enter a valid email, username (2–50 characters) and password (at least 10 characters)")
 	}
 	id, err := auth.Token()
 	if err != nil {
@@ -53,7 +53,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	}
 	user := repository.User{ID: id[:24], Username: c.Username, Email: c.Email, PasswordHash: hash}
 	if err = s.store.CreateUser(r.Context(), user); errors.Is(err, repository.ErrEmailTaken) {
-		return fail(http.StatusConflict, "An account with this email already exists")
+		return fail(http.StatusConflict, "email_taken", "An account with this email already exists")
 	} else if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) error {
 		hash = s.dummyHash
 	}
 	if !auth.Verify(c.Password, hash) || user.ID == "" {
-		return fail(http.StatusUnauthorized, "Email or password is incorrect")
+		return fail(http.StatusUnauthorized, "invalid_credentials", "Email or password is incorrect")
 	}
 	return s.startSession(w, r, user)
 }
@@ -112,11 +112,11 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) currentUser(r *http.Request) (repository.User, error) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
-		return repository.User{}, fail(http.StatusUnauthorized, "Sign in to continue")
+		return repository.User{}, fail(http.StatusUnauthorized, "unauthenticated", "Sign in to continue")
 	}
 	user, err := s.store.UserBySession(r.Context(), auth.TokenHash(c.Value))
 	if errors.Is(err, repository.ErrNotFound) {
-		return user, fail(http.StatusUnauthorized, "Sign in to continue")
+		return user, fail(http.StatusUnauthorized, "unauthenticated", "Sign in to continue")
 	}
 	return user, err
 }

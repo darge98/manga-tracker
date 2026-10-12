@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var errListNotFound = fail(http.StatusNotFound, "List not found")
+var errListNotFound = fail(http.StatusNotFound, "list_not_found", "List not found")
 
 func validListName(name string) bool { return len(name) >= 1 && len(name) <= 100 }
 
@@ -42,7 +42,7 @@ func (s *Server) createList(w http.ResponseWriter, r *http.Request, user reposit
 	}
 	body.Name = strings.TrimSpace(body.Name)
 	if !validListName(body.Name) || len(body.Description) > 1000 {
-		return fail(http.StatusBadRequest, "List name is required (max 100 characters), description max 1000")
+		return fail(http.StatusBadRequest, "invalid_list", "List name is required (max 100 characters), description max 1000")
 	}
 	id, err := auth.Token()
 	if err != nil {
@@ -92,12 +92,12 @@ func (s *Server) updateList(w http.ResponseWriter, r *http.Request, user reposit
 	if body.Name != nil {
 		trimmed := strings.TrimSpace(*body.Name)
 		if !validListName(trimmed) {
-			return fail(http.StatusBadRequest, "List name must be 1–100 characters")
+			return fail(http.StatusBadRequest, "invalid_list_name", "List name must be 1–100 characters")
 		}
 		body.Name = &trimmed
 	}
 	if body.Description != nil && len(*body.Description) > 1000 {
-		return fail(http.StatusBadRequest, "Description is too long")
+		return fail(http.StatusBadRequest, "description_too_long", "Description is too long")
 	}
 	l, err := s.store.UpdateList(r.Context(), r.PathValue("id"), user.ID, repository.ListPatch{Name: body.Name, Description: body.Description, IsPublic: body.IsPublic})
 	if err != nil {

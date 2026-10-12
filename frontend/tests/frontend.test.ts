@@ -310,3 +310,63 @@ test("retrying a failed next search page preserves earlier results", async () =>
   );
   f.injector.destroy();
 });
+
+test("deleting a chapter calls DELETE and refreshes the diary", async () => {
+  const f = fixture(Detail);
+  f.component.id = 1;
+  f.component.manga.set(manga(1));
+  f.component.library.set({
+    mangaId: 1,
+    chapters: [
+      { chapter: "3", read: true, readAt: null, rating: 4, notes: "x" },
+    ],
+    toRead: false,
+    favorite: false,
+  });
+  f.component.chapter = 3;
+  assert.equal(f.component.isSaved(), true);
+  const originalConfirm = globalThis.confirm;
+  globalThis.confirm = () => true;
+  let call = "";
+  f.api.request = async (p: string, method = "GET") => {
+    call = method + " " + p;
+    return { mangaId: 1, chapters: [], toRead: false, favorite: false };
+  };
+  await f.component.deleteChapter();
+  globalThis.confirm = originalConfirm;
+  assert.equal(call, "DELETE /library/1/chapters/3");
+  assert.equal(f.component.library().chapters.length, 0);
+  assert.equal(f.component.isSaved(), false);
+  assert.equal(f.component.notes, "");
+  f.injector.destroy();
+});
+
+test("API errors are shown in Italian from their stable code", async () => {
+  const original = globalThis.fetch;
+  const api = new Api();
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        code: "email_taken",
+        error: "An account with this email already exists",
+      }),
+      { status: 409 },
+    );
+  await assert.rejects(api.request("/auth/register", "POST", {}), {
+    message: "Esiste già un account con questa email.",
+  });
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+    });
+  await assert.rejects(api.request("/manga"), {
+    message: "Troppe richieste. Riprova tra un minuto.",
+  });
+  globalThis.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+  await assert.rejects(api.request("/manga"), {
+    message: "Connessione al server non riuscita. Controlla la rete e riprova.",
+  });
+  globalThis.fetch = original;
+});

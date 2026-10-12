@@ -20,7 +20,7 @@ func (s *Server) libraryItems(w http.ResponseWriter, r *http.Request, user repos
 	case "to-read":
 		items, err = s.store.ToRead(r.Context(), user.ID)
 	default:
-		return fail(http.StatusBadRequest, "kind must be favorites or to-read")
+		return fail(http.StatusBadRequest, "invalid_kind", "kind must be favorites or to-read")
 	}
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func (s *Server) setLibraryFlags(w http.ResponseWriter, r *http.Request, user re
 func chapterNumber(raw string) (string, error) {
 	n, err := strconv.ParseFloat(raw, 64)
 	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n <= 0 || n > 100000 || strings.ContainsAny(raw, "eE+-") || len(raw) > 12 {
-		return "", fail(http.StatusBadRequest, "Chapter must be a positive number, including decimals")
+		return "", fail(http.StatusBadRequest, "invalid_chapter", "Chapter must be a positive number, including decimals")
 	}
 	return strconv.FormatFloat(n, 'f', -1, 64), nil
 }
@@ -93,13 +93,30 @@ func (s *Server) saveChapter(w http.ResponseWriter, r *http.Request, user reposi
 		return err
 	}
 	if body.Read == nil || len(body.Notes) > 5000 || body.Rating != nil && (*body.Rating < 1 || *body.Rating > 5) {
-		return fail(http.StatusBadRequest, "Provide read, optional rating 1–5, and notes up to 5000 characters")
+		return fail(http.StatusBadRequest, "invalid_chapter_feedback", "Provide read, optional rating 1–5, and notes up to 5000 characters")
 	}
 	if err = s.ensureManga(r.Context(), id); err != nil {
 		return err
 	}
 	c := repository.Chapter{Chapter: chapter, Read: *body.Read, Rating: body.Rating, Notes: body.Notes}
 	l, err := s.store.SaveChapter(r.Context(), user.ID, id, c, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, l)
+	return nil
+}
+
+func (s *Server) deleteChapter(w http.ResponseWriter, r *http.Request, user repository.User) error {
+	id, err := mangaID(r, "id")
+	if err != nil {
+		return err
+	}
+	chapter, err := chapterNumber(r.PathValue("chapter"))
+	if err != nil {
+		return err
+	}
+	l, err := s.store.DeleteChapter(r.Context(), user.ID, id, chapter)
 	if err != nil {
 		return err
 	}

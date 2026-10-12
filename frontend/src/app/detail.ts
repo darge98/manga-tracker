@@ -1,239 +1,18 @@
 import { Component, inject, signal, computed } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { ActivatedRoute, RouterLink } from "@angular/router";
-import { Api, Manga, MangaList, Chapter, Library, readableError } from "./core";
+import {
+  Api,
+  Manga,
+  MangaList,
+  Chapter,
+  Library,
+  mutate,
+  readableError,
+} from "./core";
 @Component({
   imports: [FormsModule, RouterLink],
-  template: `<a class="back-link" routerLink="/explore">← Torna al catalogo</a>
-    @if (loading()) {
-      <div class="loading" role="status">Caricamento del manga…</div>
-    }
-    @if (error()) {
-      <div class="notice error" role="alert">
-        {{ error() }} <button (click)="load()">Riprova</button>
-      </div>
-    }
-    @if (manga(); as m) {
-      <section class="detail-hero">
-        <div class="detail-cover">
-          <img [src]="m.coverUrl" [alt]="'Copertina di ' + m.title" />
-        </div>
-        <div>
-          <p class="eyebrow">{{ m.status }}</p>
-          <h1>{{ m.title }}</h1>
-          <p class="author">{{ m.author || "Autore non disponibile" }}</p>
-          <div class="tags">
-            @for (genre of m.genres; track genre) {
-              <span>{{ genre }}</span>
-            }
-          </div>
-          <dl class="manga-facts">
-            <div>
-              <dt>Capitoli</dt>
-              <dd>{{ m.chapters || "Totale non disponibile" }}</dd>
-            </div>
-            <div>
-              <dt>Valutazione catalogo</dt>
-              <dd>{{ m.score ? m.score + " / 10" : "Non disponibile" }}</dd>
-            </div>
-          </dl>
-          <div class="actions">
-            @if (api.user()) {
-              <button
-                class="button"
-                [class.primary]="library().toRead"
-                [class.secondary]="!library().toRead"
-                [disabled]="busy() || loading()"
-                (click)="toggle('toRead')"
-              >
-                {{
-                  library().toRead ? "In Da leggere" : "Aggiungi a Da leggere"
-                }}</button
-              ><button
-                class="button secondary"
-                [disabled]="busy() || loading()"
-                (click)="toggle('favorite')"
-              >
-                {{
-                  library().favorite
-                    ? "Rimuovi dai preferiti"
-                    : "Aggiungi ai preferiti"
-                }}
-              </button>
-            } @else {
-              <a class="button primary" routerLink="/auth"
-                >Accedi per tenere il segno</a
-              >
-            }
-            <a
-              [href]="m.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="external"
-              >Su MyAnimeList ↗</a
-            >
-          </div>
-        </div>
-      </section>
-      <section class="synopsis">
-        <h2>La storia</h2>
-        <p>
-          {{
-            m.description ||
-              "La descrizione non è disponibile per questo titolo."
-          }}
-        </p>
-        <small class="muted"
-          >Le descrizioni del catalogo possono essere in inglese.</small
-        >
-      </section>
-      @if (api.user()) {
-        <section>
-          <div class="section-heading">
-            <div>
-              <h2>Il tuo diario dei capitoli</h2>
-              <p>
-                {{ readCount() }} capitoli letti{{
-                  m.chapters ? " su " + m.chapters : ""
-                }}.
-                @if (!m.chapters) {
-                  Il totale non è ancora noto.
-                }
-              </p>
-            </div>
-          </div>
-          <form
-            class="chapter-form"
-            (ngSubmit)="saveChapter()"
-            #chapterForm="ngForm"
-          >
-            <div class="chapter-form-head">
-              <div>
-                <label for="chapter-number">Capitolo</label
-                ><input
-                  id="chapter-number"
-                  name="chapter"
-                  type="number"
-                  min="0.001"
-                  max="100000"
-                  step="any"
-                  required
-                  [disabled]="busy() || loading()"
-                  [(ngModel)]="chapter"
-                  (ngModelChange)="selectChapter()"
-                />
-              </div>
-              <label class="checkbox"
-                ><input
-                  name="read"
-                  type="checkbox"
-                  [disabled]="busy() || loading()"
-                  [(ngModel)]="read"
-                />
-                Segna come letto</label
-              >
-              <div>
-                <label for="rating">Il tuo voto</label
-                ><select
-                  id="rating"
-                  name="rating"
-                  [disabled]="busy() || loading()"
-                  [(ngModel)]="rating"
-                >
-                  <option [ngValue]="null">Nessun voto</option>
-                  <option [ngValue]="1">1 / 5</option>
-                  <option [ngValue]="2">2 / 5</option>
-                  <option [ngValue]="3">3 / 5</option>
-                  <option [ngValue]="4">4 / 5</option>
-                  <option [ngValue]="5">5 / 5</option>
-                </select>
-              </div>
-            </div>
-            <label for="notes">Cosa ti ha lasciato questo capitolo?</label
-            ><textarea
-              id="notes"
-              name="notes"
-              [disabled]="busy() || loading()"
-              [(ngModel)]="notes"
-              maxlength="5000"
-              rows="3"
-              placeholder="Un pensiero, una scena, una teoria…"
-            ></textarea>
-            <div class="form-footer">
-              <small>Le tue note e valutazioni restano private.</small
-              ><button
-                class="button primary"
-                [disabled]="busy() || loading() || chapterForm.invalid"
-              >
-                {{ busy() ? "Salvataggio…" : "Salva capitolo" }}
-              </button>
-            </div>
-          </form>
-          @if (feedback()) {
-            <p class="notice success" role="status">{{ feedback() }}</p>
-          }
-          @if (library().chapters.length) {
-            <div class="chapter-history">
-              @for (c of library().chapters; track c.chapter) {
-                <button
-                  class="chapter-row"
-                  [disabled]="busy() || loading()"
-                  (click)="edit(c)"
-                >
-                  <strong>Capitolo {{ c.chapter }}</strong
-                  ><span class="status" [class.is-read]="c.read">{{
-                    c.read ? "Letto" : "Da leggere"
-                  }}</span
-                  ><span>{{
-                    c.rating ? c.rating + " / 5" : "Nessun voto"
-                  }}</span
-                  ><span class="chapter-note">{{
-                    c.notes || "Nessuna nota"
-                  }}</span
-                  ><span>Modifica →</span>
-                </button>
-              }
-            </div>
-          } @else {
-            <p class="muted">
-              Non hai ancora registrato capitoli per questo manga.
-            </p>
-          }
-        </section>
-        <section class="add-list">
-          <h2>Aggiungi a una tua lista</h2>
-          @if (lists().length) {
-            <form (ngSubmit)="addList()">
-              <label class="sr-only" for="select-list">Scegli una lista</label
-              ><select
-                id="select-list"
-                name="list"
-                [(ngModel)]="selectedList"
-                required
-              >
-                <option value="">Scegli una lista</option>
-                @for (list of lists(); track list.id) {
-                  <option [value]="list.id">
-                    {{ list.name }} ·
-                    {{ list.isPublic ? "Pubblica" : "Privata" }}
-                  </option>
-                }</select
-              ><button
-                class="button secondary"
-                [disabled]="!selectedList || busy() || loading()"
-              >
-                Aggiungi
-              </button>
-            </form>
-          } @else {
-            <p>
-              Raccogli le tue letture in una selezione personale.
-              <a routerLink="/lists">Crea la prima lista →</a>
-            </p>
-          }
-        </section>
-      }
-    }`,
+  templateUrl: "./detail.html",
 })
 export class Detail {
   api = inject(Api);
@@ -287,7 +66,10 @@ export class Detail {
       }>("/manga/" + this.id);
       if (version !== this.loadVersion) return;
       this.manga.set(d.manga);
-      if (d.catalogWarning) this.feedback.set(d.catalogWarning);
+      if (d.catalogWarning)
+        this.feedback.set(
+          "Catalogo non raggiungibile: mostro i dati salvati in precedenza.",
+        );
       if (this.api.user()) {
         const [l, ls] = await Promise.all([
           this.api.request<Library>("/library/" + this.id),
@@ -368,6 +150,34 @@ export class Detail {
       this.feedback.set("Capitolo " + chapter + " salvato nel tuo diario.");
     });
   }
+  isSaved() {
+    return this.library().chapters.some(
+      (c) => Number(c.chapter) === this.chapter,
+    );
+  }
+  async deleteChapter() {
+    const id = this.id;
+    const chapter = this.chapter;
+    if (
+      this.busy() ||
+      !confirm(
+        "Eliminare il capitolo " +
+          chapter +
+          " dal tuo diario? Note e voto andranno persi.",
+      )
+    )
+      return;
+    await this.mutate(async (current) => {
+      const l = await this.api.request<Library>(
+        "/library/" + id + "/chapters/" + chapter,
+        "DELETE",
+      );
+      if (!current()) return;
+      this.library.set({ ...l, chapters: l.chapters || [] });
+      this.selectChapter();
+      this.feedback.set("Capitolo " + chapter + " eliminato dal tuo diario.");
+    });
+  }
   async addList() {
     const id = this.id;
     const list = this.selectedList;
@@ -376,21 +186,7 @@ export class Detail {
       if (current()) this.feedback.set("Manga aggiunto alla lista.");
     });
   }
-  async mutate(action: (current: () => boolean) => Promise<void>) {
-    if (this.busy()) return;
-    const version = this.loadVersion;
-    const owner = this.api.user()?.id;
-    const current = () =>
-      version === this.loadVersion && owner === this.api.user()?.id;
-    this.busy.set(true);
-    this.error.set("");
-    this.feedback.set("");
-    try {
-      await action(current);
-    } catch (e) {
-      if (current()) this.error.set(readableError(e));
-    } finally {
-      if (version === this.loadVersion) this.busy.set(false);
-    }
+  mutate(action: (current: () => boolean) => Promise<void>) {
+    return mutate(this, action, () => this.feedback.set(""));
   }
 }

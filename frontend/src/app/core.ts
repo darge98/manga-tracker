@@ -1,4 +1,6 @@
-import { Injectable, signal } from "@angular/core";
+import { Injectable, WritableSignal, signal } from "@angular/core";
+import { ApiError, readableError } from "./errors";
+export { ApiError, readableError } from "./errors";
 export interface Manga {
   id: number;
   title: string;
@@ -54,12 +56,17 @@ export class Api {
   private sessionPending: Promise<void> | null = null;
   async request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
     const identityVersion = this.identityVersion;
-    const response = await fetch("/api" + path, {
-      method,
-      credentials: "include",
-      headers: body ? { "Content-Type": "application/json" } : {},
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api" + path, {
+        method,
+        credentials: "include",
+        headers: body ? { "Content-Type": "application/json" } : {},
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch {
+      throw new ApiError(0, "network");
+    }
     let data: any;
     try {
       data = await response.json();
@@ -69,12 +76,7 @@ export class Api {
     if (!response.ok) {
       if (response.status === 401 && identityVersion === this.identityVersion)
         this.setUser(null);
-      throw new Error(
-        data.error?.message ||
-          data.error ||
-          data.message ||
-          `Richiesta non riuscita (${response.status}).`,
-      );
+      throw new ApiError(response.status, data.code ?? "");
     }
     return data as T;
   }
@@ -99,8 +101,35 @@ export class Api {
     this.setUser(null);
   }
 }
-export function readableError(e: unknown) {
-  return e instanceof Error
-    ? e.message
-    : "Non è stato possibile completare la richiesta. Riprova.";
+/** State shared by pages that run user actions while route changes may
+ * replace the content being edited. */
+export interface MutationHost {
+  api: Api;
+  busy: WritableSignal<boolean>;
+  error: WritableSignal<string>;
+  loadVersion: number;
+}
+
+/** Runs one user action at a time. `current()` turns false when the page
+ * loads other content or the account changes, so stale results are dropped. */
+export async function mutate(
+  host: MutationHost,
+  action: (current: () => boolean) => Promise<void>,
+  onStart?: () => void,
+) {
+  if (host.busy()) return;
+  const version = host.loadVersion;
+  const owner = host.api.user()?.id;
+  const current = () =>
+    version === host.loadVersion && owner === host.api.user()?.id;
+  host.busy.set(true);
+  host.error.set("");
+  onStart?.();
+  try {
+    await action(current);
+  } catch (e) {
+    if (current()) host.error.set(readableError(e));
+  } finally {
+    if (version === host.loadVersion) host.busy.set(false);
+  }
 }

@@ -18,7 +18,7 @@ func pageParam(r *http.Request) int {
 func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(q) > 200 {
-		return fail(http.StatusBadRequest, "Search is too long")
+		return fail(http.StatusBadRequest, "search_too_long", "Search is too long")
 	}
 	result, err := s.catalog.Search(r.Context(), q, pageParam(r))
 	if err != nil {
