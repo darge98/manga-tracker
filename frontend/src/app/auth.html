@@ -1,35 +1,34 @@
 <div class="auth-layout">
   <div class="auth-intro">
-    <p class="eyebrow">IL TUO DIARIO, SEMPRE CON TE</p>
-    <h1>Ogni capitolo<br />lascia un segno<span class="accent">.</span></h1>
+    <p class="eyebrow">YOUR JOURNAL, ALWAYS WITH YOU</p>
+    <h1>Every chapter<br />leaves a mark<span class="accent">.</span></h1>
     <p>
-      Ritrova i manga che ami, conserva le tue impressioni e condividi le tue
-      selezioni.
+      Find the manga you love, keep your impressions and share your collections.
     </p>
     <div class="auth-rule"></div>
     <p class="muted">
-      Il catalogo è libero da esplorare. Il tuo diario è personale.
+      The catalog is free to explore. Your journal is yours alone.
     </p>
   </div>
   <section class="auth-panel">
-    <div class="tabs" role="group" aria-label="Accesso account">
+    <div class="tabs" role="group" aria-label="Account access">
       <button [class.selected]="!register" (click)="register = false">
-        Accedi</button
+        Sign in</button
       ><button [class.selected]="register" (click)="register = true">
-        Registrati
+        Sign up
       </button>
     </div>
-    <h2>{{ register ? "Fai spazio alle tue storie." : "Bentornato." }}</h2>
+    <h2>{{ register ? "Make room for your stories." : "Welcome back." }}</h2>
     <p>
       {{
         register
-          ? "Crea il tuo account e comincia a tenere il segno."
-          : "Accedi per riprendere le tue letture."
+          ? "Create your account and start keeping track."
+          : "Sign in to pick up where you left off."
       }}
     </p>
     <form (ngSubmit)="submit()" #form="ngForm">
       @if (register) {
-        <label for="username">Nome utente</label
+        <label for="username">Username</label
         ><input
           id="username"
           name="username"
@@ -60,7 +59,7 @@
         [attr.autocomplete]="register ? 'new-password' : 'current-password'"
       />
       @if (register) {
-        <small>Almeno 10 caratteri.</small>
+        <small>At least 10 characters.</small>
       }
       @if (error()) {
         <p class="notice error" role="alert">{{ error() }}</p>
@@ -70,7 +69,7 @@
         type="submit"
         [disabled]="form.invalid || busy()"
       >
-        {{ busy() ? "Attendi…" : register ? "Crea account" : "Accedi" }}
+        {{ busy() ? "Please wait…" : register ? "Create account" : "Sign in" }}
       </button>
     </form>
   </section>

@@ -1,57 +1,56 @@
 <div class="page-heading">
-  <p class="eyebrow">IL PIACERE DI CONTINUARE</p>
-  <h1>La prossima pagina<br />ti aspetta<span class="accent">.</span></h1>
-  <p>Le tue storie, i tuoi progressi. Tutto al suo posto.</p>
+  <p class="eyebrow">THE JOY OF READING ON</p>
+  <h1>Your next page<br />is waiting<span class="accent">.</span></h1>
+  <p>Your stories, your progress. Everything in its place.</p>
 </div>
 <section class="welcome">
   <div>
-    <span class="small-label">IL TUO DIARIO DI LETTURA</span>
-    <h2>Non perdere il filo.</h2>
-    <p>Segna i capitoli letti e conserva ciò che ti hanno lasciato.</p>
+    <span class="small-label">YOUR READING JOURNAL</span>
+    <h2>Never lose your place.</h2>
+    <p>Mark the chapters you read and keep what they left you with.</p>
     <a class="button primary" [routerLink]="api.user() ? '/explore' : '/auth'"
-      >{{ api.user() ? "Trova la prossima lettura" : "Crea il tuo spazio" }}
+      >{{ api.user() ? "Find your next read" : "Create your space" }}
       <span aria-hidden="true">→</span></a
     >
   </div>
   <div class="welcome-art" aria-hidden="true">
     <span class="book-back"></span
     ><span class="book-front"
-      ><span>MANGA<br />TRACK</span><b>読む</b
-      ><small>IL TUO DIARIO</small></span
+      ><span>MANGA<br />TRACK</span><b>読む</b><small>YOUR JOURNAL</small></span
     >
   </div>
 </section>
 @if (error()) {
   <div class="notice error" role="alert">
-    {{ error() }} <button (click)="load()">Riprova</button>
+    {{ error() }} <button (click)="load()">Retry</button>
   </div>
 }
 <section>
   <div class="section-heading">
     <div>
-      <h2>Riprendi da qui</h2>
-      <p>Le tue letture più recenti.</p>
+      <h2>Pick up here</h2>
+      <p>Your most recent reads.</p>
     </div>
     <a routerLink="/explore"
-      >Esplora il catalogo <span aria-hidden="true">→</span></a
+      >Explore the catalog <span aria-hidden="true">→</span></a
     >
   </div>
   @if (loading()) {
-    <div class="loading" role="status">Caricamento delle letture…</div>
+    <div class="loading" role="status">Loading your reads…</div>
   } @else if (api.user() && recent().length) {
     <div class="recent-grid">
       @for (item of recent(); track item.manga.id + ":" + item.chapter) {
         <a class="recent-card" [routerLink]="['/manga', item.manga.id]"
           ><img
             [src]="item.manga.coverUrl"
-            [alt]="'Copertina di ' + item.manga.title"
+            [alt]="'Cover of ' + item.manga.title"
           />
           <div>
-            <span class="small-label">IN LETTURA</span>
+            <span class="small-label">READING</span>
             <h3>{{ item.manga.title }}</h3>
-            <p>Capitolo {{ item.chapter }} letto</p>
+            <p>Read chapter {{ item.chapter }}</p>
             <span class="continue"
-              >Continua <span aria-hidden="true">→</span></span
+              >Continue <span aria-hidden="true">→</span></span
             >
           </div></a
         >
@@ -62,19 +61,19 @@
       <h3>
         {{
           api.user()
-            ? "Il primo capitolo è ancora da scrivere."
-            : "La tua storia inizia qui."
+            ? "Your first chapter is still unwritten."
+            : "Your story starts here."
         }}
       </h3>
       <p>
         {{
           api.user()
-            ? "Apri un manga e segna un capitolo come letto. Lo ritroverai qui."
-            : "Accedi per conservare le tue letture e ritrovarle su ogni dispositivo."
+            ? "Open a manga and mark a chapter as read. You'll find it here."
+            : "Sign in to keep your reads and find them on every device."
         }}
       </p>
       <a [routerLink]="api.user() ? '/explore' : '/auth'"
-        >{{ api.user() ? "Scegli un manga" : "Accedi al tuo spazio" }} →</a
+        >{{ api.user() ? "Pick a manga" : "Sign in to your space" }} →</a
       >
     </div>
   }
@@ -82,10 +81,10 @@
 <section>
   <div class="section-heading">
     <div>
-      <h2>Storie che conquistano</h2>
-      <p>I manga più popolari, da scoprire o riscoprire.</p>
+      <h2>Stories that win readers over</h2>
+      <p>The most popular manga, to discover or rediscover.</p>
     </div>
-    <a routerLink="/explore">Vedi tutti →</a>
+    <a routerLink="/explore">See all →</a>
   </div>
   @if (loading()) {
     <div class="skeleton-grid" aria-hidden="true">
@@ -100,7 +99,7 @@
       }
     </div>
     @if (!popular().length && !error()) {
-      <div class="empty">Nessun manga disponibile al momento.</div>
+      <div class="empty">No manga available right now.</div>
     }
   }
 </section>

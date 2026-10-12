@@ -1,37 +1,37 @@
-// Italian messages for the stable error codes returned by the API.
-// The API's own `error` text is English and meant for API consumers.
+// User-facing messages for the stable error codes returned by the API. The
+// API's own `error` text is meant for API consumers and may be more technical.
 const messages: Record<string, string> = {
-  network: "Connessione al server non riuscita. Controlla la rete e riprova.",
-  unauthenticated: "Accedi per continuare.",
-  invalid_credentials: "Email o password non corrette.",
+  network: "Could not reach the server. Check your connection and try again.",
+  unauthenticated: "Please sign in to continue.",
+  invalid_credentials: "Incorrect email or password.",
   invalid_registration:
-    "Inserisci un'email valida, un nome utente di 2–50 caratteri e una password di almeno 10 caratteri.",
-  password_too_long: "La password è troppo lunga.",
-  wrong_password: "La password attuale non è corretta.",
-  invalid_new_password: "La nuova password deve avere da 10 a 256 caratteri.",
-  email_taken: "Esiste già un account con questa email.",
-  rate_limited: "Troppe richieste. Riprova tra un minuto.",
-  search_too_long: "La ricerca è troppo lunga.",
-  search_too_short: "Scrivi almeno 3 caratteri per cercare.",
+    "Enter a valid email, a username of 2–50 characters and a password of at least 10 characters.",
+  password_too_long: "The password is too long.",
+  wrong_password: "Your current password is incorrect.",
+  invalid_new_password: "The new password must be 10–256 characters long.",
+  email_taken: "An account with this email already exists.",
+  rate_limited: "Too many requests. Please try again in a minute.",
+  search_too_long: "The search is too long.",
+  search_too_short: "Type at least 3 characters to search.",
   invalid_search:
-    "Il catalogo non accetta questa ricerca. Prova con almeno 3 caratteri.",
-  invalid_manga_id: "Manga non valido.",
-  manga_not_found: "Manga non trovato.",
+    "The catalog did not accept this search. Try at least 3 characters.",
+  invalid_manga_id: "Invalid manga.",
+  manga_not_found: "Manga not found.",
   invalid_chapter:
-    "Il capitolo deve essere un numero positivo, anche con decimali.",
+    "The chapter must be a positive number; decimals are allowed.",
   invalid_chapter_feedback:
-    "Indica se il capitolo è letto, un voto da 1 a 5 e note fino a 5000 caratteri.",
-  invalid_kind: "Raccolta non valida.",
-  list_not_found: "Lista non trovata.",
+    "Say whether the chapter is read, with an optional 1–5 rating and notes up to 5000 characters.",
+  invalid_kind: "Invalid collection.",
+  list_not_found: "List not found.",
   invalid_list:
-    "Il nome della lista è obbligatorio (massimo 100 caratteri), la descrizione al massimo 1000.",
-  invalid_list_name: "Il nome della lista deve avere da 1 a 100 caratteri.",
-  description_too_long: "La descrizione è troppo lunga.",
+    "A list name is required (up to 100 characters); the description can be up to 1000.",
+  invalid_list_name: "The list name must be 1–100 characters long.",
+  description_too_long: "The description is too long.",
   catalog_unavailable:
-    "Il catalogo non è raggiungibile in questo momento. Riprova tra poco.",
+    "The catalog is unavailable right now. Please try again shortly.",
   database_unavailable:
-    "Il servizio non è disponibile in questo momento. Riprova tra poco.",
-  not_found: "Elemento non trovato.",
+    "The service is unavailable right now. Please try again shortly.",
+  not_found: "Not found.",
 };
 
 const byStatus: Record<number, string> = {
@@ -41,7 +41,7 @@ const byStatus: Record<number, string> = {
   503: messages["database_unavailable"],
 };
 
-const fallback = "Non è stato possibile completare la richiesta. Riprova.";
+const fallback = "The request could not be completed. Please try again.";
 
 export class ApiError extends Error {
   constructor(

@@ -10,9 +10,8 @@ import {
   mutate,
   readableError,
 } from "./core";
-import { StatusPipe } from "./status.pipe";
 @Component({
-  imports: [FormsModule, RouterLink, StatusPipe],
+  imports: [FormsModule, RouterLink],
   templateUrl: "./detail.html",
 })
 export class Detail {
@@ -69,7 +68,7 @@ export class Detail {
       this.manga.set(d.manga);
       if (d.catalogWarning)
         this.feedback.set(
-          "Catalogo non raggiungibile: mostro i dati salvati in precedenza.",
+          "The catalog is unavailable: showing previously saved details.",
         );
       if (this.api.user()) {
         const [l, ls] = await Promise.all([
@@ -120,7 +119,7 @@ export class Detail {
       if (!current()) return;
       this.library.update((l) => ({ ...l, [key]: next }));
       this.feedback.set(
-        next ? "Aggiunto alla tua biblioteca." : "Rimosso dalla selezione.",
+        next ? "Added to your library." : "Removed from your library.",
       );
     });
   }
@@ -148,7 +147,7 @@ export class Detail {
       const l = await this.api.request<Library>("/library/" + id);
       if (!current()) return;
       this.library.set({ ...l, chapters: l.chapters || [] });
-      this.feedback.set("Capitolo " + chapter + " salvato nel tuo diario.");
+      this.feedback.set("Chapter " + chapter + " saved to your journal.");
     });
   }
   isSaved() {
@@ -162,9 +161,9 @@ export class Detail {
     if (
       this.busy() ||
       !confirm(
-        "Eliminare il capitolo " +
+        "Delete chapter " +
           chapter +
-          " dal tuo diario? Note e voto andranno persi.",
+          " from your journal? Its notes and rating will be lost.",
       )
     )
       return;
@@ -176,7 +175,7 @@ export class Detail {
       if (!current()) return;
       this.library.set({ ...l, chapters: l.chapters || [] });
       this.selectChapter();
-      this.feedback.set("Capitolo " + chapter + " eliminato dal tuo diario.");
+      this.feedback.set("Chapter " + chapter + " deleted from your journal.");
     });
   }
   async addList() {
@@ -184,7 +183,7 @@ export class Detail {
     const list = this.selectedList;
     await this.mutate(async (current) => {
       await this.api.request("/lists/" + list + "/items/" + id, "PUT", {});
-      if (current()) this.feedback.set("Manga aggiunto alla lista.");
+      if (current()) this.feedback.set("Manga added to the list.");
     });
   }
   mutate(action: (current: () => boolean) => Promise<void>) {

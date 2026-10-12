@@ -1,15 +1,14 @@
 import { Component, input } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { Manga } from "./core";
-import { StatusPipe } from "./status.pipe";
 @Component({
   selector: "manga-card",
-  imports: [RouterLink, StatusPipe],
+  imports: [RouterLink],
   template: `<a class="manga-card" [routerLink]="['/manga', manga().id]"
     ><div class="cover">
       <img
         [src]="manga().coverUrl"
-        [alt]="'Copertina di ' + manga().title"
+        [alt]="'Cover of ' + manga().title"
         loading="lazy"
         (error)="hideImage($event)"
       />
@@ -19,7 +18,7 @@ import { StatusPipe } from "./status.pipe";
     </div>
     <h3>{{ manga().title }}</h3>
     <p>
-      {{ manga().genres.slice(0, 2).join(" · ") || (manga().status | status) }}
+      {{ manga().genres.slice(0, 2).join(" · ") || manga().status }}
     </p></a
   >`,
 })

@@ -1,65 +1,65 @@
 <div class="page-heading">
-  <p class="eyebrow">LE STORIE, COME PIACCIONO A TE</p>
+  <p class="eyebrow">STORIES, THE WAY YOU LIKE THEM</p>
   <h1>
     {{
       publicView
-        ? "Una selezione da scoprire."
+        ? "A collection to discover."
         : id
-          ? list()?.name || "La tua lista."
-          : "Le tue liste."
+          ? list()?.name || "Your list."
+          : "Your lists."
     }}
   </h1>
   <p>
     {{
       publicView
-        ? "Una raccolta condivisa da un lettore."
+        ? "A collection shared by a reader."
         : id
           ? list()?.description
-          : "Metti insieme i tuoi manga. Tienili per te o condividili."
+          : "Bring your manga together. Keep them to yourself or share them."
     }}
   </p>
 </div>
 @if (error()) {
   <div class="notice error" role="alert">
-    {{ error() }} <button (click)="load()">Riprova</button>
+    {{ error() }} <button (click)="load()">Retry</button>
   </div>
 }
 @if (message()) {
   <p class="notice success" role="status">{{ message() }}</p>
 }
 @if (loading()) {
-  <div class="loading" role="status">Caricamento delle liste…</div>
+  <div class="loading" role="status">Loading lists…</div>
 } @else if (id) {
   @if (list(); as l) {
     <div class="list-toolbar">
       <span class="status" [class.is-read]="l.isPublic">{{
-        l.isPublic ? "Lista pubblica" : "Lista privata"
+        l.isPublic ? "Public list" : "Private list"
       }}</span
       ><span>{{ items().length }} manga</span>
       @if (!publicView) {
         <button class="button secondary" (click)="startEdit()">
-          Modifica lista
+          Edit list
         </button>
         @if (l.isPublic) {
           <button class="button secondary" (click)="copyLink()">
-            Copia link</button
+            Copy link</button
           ><a class="external" [routerLink]="['/public/lists', l.id]"
-            >Apri pagina pubblica ↗</a
+            >Open public page ↗</a
           >
         }
       }
     </div>
     @if (editing && !publicView) {
       <form class="list-form" (ngSubmit)="save()" #editForm="ngForm">
-        <h2>Modifica la tua lista</h2>
-        <label for="edit-name">Nome</label
+        <h2>Edit your list</h2>
+        <label for="edit-name">Name</label
         ><input
           id="edit-name"
           name="name"
           [(ngModel)]="name"
           required
           maxlength="100"
-        /><label for="edit-description">Descrizione</label
+        /><label for="edit-description">Description</label
         ><textarea
           id="edit-description"
           name="description"
@@ -69,27 +69,27 @@
         ></textarea
         ><label class="checkbox"
           ><input type="checkbox" name="isPublic" [(ngModel)]="isPublic" />
-          Pubblica, visibile a chi ha il link</label
+          Public: anyone with the link can see it</label
         >
         <div class="actions">
           <button
             class="button primary"
             [disabled]="busy() || editForm.invalid"
           >
-            Salva modifiche</button
+            Save changes</button
           ><button
             type="button"
             class="button secondary"
             (click)="editing = false"
           >
-            Annulla</button
+            Cancel</button
           ><button
             type="button"
             class="text-button danger"
             [disabled]="busy()"
             (click)="deleteList()"
           >
-            Elimina lista
+            Delete list
           </button>
         </div>
       </form>
@@ -104,7 +104,7 @@
               [disabled]="busy()"
               (click)="remove(m)"
             >
-              Rimuovi dalla lista
+              Remove from list
             </button>
           }
         </div>
@@ -112,52 +112,52 @@
     </div>
     @if (!items().length) {
       <div class="empty">
-        <h3>Questa selezione è ancora vuota.</h3>
+        <h3>This collection is still empty.</h3>
         <p>
           {{
             publicView
-              ? "Torna più tardi per scoprire i manga aggiunti."
-              : "Cerca un manga e aggiungilo alla lista dalla sua pagina."
+              ? "Come back later to discover the manga added here."
+              : "Search for a manga and add it to the list from its page."
           }}
         </p>
         @if (!publicView) {
-          <a class="button primary" routerLink="/explore">Trova un manga</a>
+          <a class="button primary" routerLink="/explore">Find a manga</a>
         }
       </div>
     }
   }
 } @else {
   <form class="list-form" (ngSubmit)="save()" #createForm="ngForm">
-    <h2>Una nuova selezione</h2>
+    <h2>A new collection</h2>
     <div class="new-list-grid">
       <div>
-        <label for="new-name">Nome della lista</label
+        <label for="new-name">List name</label
         ><input
           id="new-name"
           name="name"
           [(ngModel)]="name"
           required
           maxlength="100"
-          placeholder="Ad esempio: Storie da rileggere"
+          placeholder="For example: Stories to reread"
         />
       </div>
       <div>
-        <label for="new-description">Descrizione (facoltativa)</label
+        <label for="new-description">Description (optional)</label
         ><input
           id="new-description"
           name="description"
           [(ngModel)]="description"
           maxlength="1000"
-          placeholder="Cosa rende speciale questa selezione?"
+          placeholder="What makes this collection special?"
         />
       </div>
     </div>
     <div class="form-footer">
       <label class="checkbox"
         ><input type="checkbox" name="isPublic" [(ngModel)]="isPublic" />
-        Pubblica, visibile a chi ha il link</label
+        Public: anyone with the link can see it</label
       ><button class="button primary" [disabled]="busy() || createForm.invalid">
-        {{ busy() ? "Creazione…" : "Crea lista" }}
+        {{ busy() ? "Creating…" : "Create list" }}
       </button>
     </div>
   </form>
@@ -166,24 +166,26 @@
       <a class="list-card" [routerLink]="['/lists', l.id]"
         ><div class="list-card-top">
           <span class="list-symbol" aria-hidden="true">▤</span
-          ><span class="status">{{ l.isPublic ? "Pubblica" : "Privata" }}</span>
+          ><span class="status">{{ l.isPublic ? "Public" : "Private" }}</span>
         </div>
         <h2>{{ l.name }}</h2>
         <p>
           {{
-            l.description || "Una selezione personale, una storia dopo l’altra."
+            l.description || "A personal collection, one story after another."
           }}
         </p>
         <div class="list-card-bottom">
-          <span>{{ l.itemCount }} manga</span><span>Apri lista →</span>
+          <span>{{ l.itemCount }} manga</span><span>Open list →</span>
         </div></a
       >
     }
   </div>
   @if (!lists().length) {
     <div class="empty compact">
-      <h3>Un tema, un genere, un’emozione.</h3>
-      <p>Crea la tua prima lista e raccogli i manga che vuoi tenere insieme.</p>
+      <h3>A theme, a genre, a feeling.</h3>
+      <p>
+        Create your first list and gather the manga you want to keep together.
+      </p>
     </div>
   }
 }

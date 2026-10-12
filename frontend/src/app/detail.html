@@ -1,21 +1,21 @@
-<a class="back-link" routerLink="/explore">← Torna al catalogo</a>
+<a class="back-link" routerLink="/explore">← Back to the catalog</a>
 @if (loading()) {
-  <div class="loading" role="status">Caricamento del manga…</div>
+  <div class="loading" role="status">Loading manga…</div>
 }
 @if (error()) {
   <div class="notice error" role="alert">
-    {{ error() }} <button (click)="load()">Riprova</button>
+    {{ error() }} <button (click)="load()">Retry</button>
   </div>
 }
 @if (manga(); as m) {
   <section class="detail-hero">
     <div class="detail-cover">
-      <img [src]="m.coverUrl" [alt]="'Copertina di ' + m.title" />
+      <img [src]="m.coverUrl" [alt]="'Cover of ' + m.title" />
     </div>
     <div>
-      <p class="eyebrow">{{ m.status | status }}</p>
+      <p class="eyebrow">{{ m.status }}</p>
       <h1>{{ m.title }}</h1>
-      <p class="author">{{ m.author || "Autore non disponibile" }}</p>
+      <p class="author">{{ m.author || "Author not available" }}</p>
       <div class="tags">
         @for (genre of m.genres; track genre) {
           <span>{{ genre }}</span>
@@ -23,12 +23,12 @@
       </div>
       <dl class="manga-facts">
         <div>
-          <dt>Capitoli</dt>
-          <dd>{{ m.chapters || "Totale non disponibile" }}</dd>
+          <dt>Chapters</dt>
+          <dd>{{ m.chapters || "Total not available" }}</dd>
         </div>
         <div>
-          <dt>Valutazione catalogo</dt>
-          <dd>{{ m.score ? m.score + " / 10" : "Non disponibile" }}</dd>
+          <dt>Catalog score</dt>
+          <dd>{{ m.score ? m.score + " / 10" : "Not available" }}</dd>
         </div>
       </dl>
       <div class="actions">
@@ -41,7 +41,7 @@
             (click)="toggle('toRead')"
           >
             {{
-              library().toRead ? "In Da leggere" : "Aggiungi a Da leggere"
+              library().toRead ? "On your To read list" : "Add to To read"
             }}</button
           ><button
             class="button secondary"
@@ -49,10 +49,7 @@
             (click)="toggle('favorite')"
           >
             {{
-              library().favorite
-                ? "Rimuovi dai preferiti"
-                : "Aggiungi ai
-        preferiti"
+              library().favorite ? "Remove from favorites" : "Add to favorites"
             }}
           </button>
         } @else {
@@ -60,7 +57,7 @@
             class="button primary"
             routerLink="/auth"
             [queryParams]="{ returnUrl: '/manga/' + m.id }"
-            >Accedi per tenere il segno</a
+            >Sign in to keep track</a
           >
         }
         <a
@@ -68,33 +65,28 @@
           target="_blank"
           rel="noopener noreferrer"
           class="external"
-          >Su MyAnimeList ↗</a
+          >On MyAnimeList ↗</a
         >
       </div>
     </div>
   </section>
   <section class="synopsis">
-    <h2>La storia</h2>
+    <h2>Synopsis</h2>
     <p>
-      {{
-        m.description || "La descrizione non è disponibile per questo titolo."
-      }}
+      {{ m.description || "No synopsis is available for this title." }}
     </p>
-    <small class="muted"
-      >Le descrizioni del catalogo possono essere in inglese.</small
-    >
   </section>
   @if (api.user()) {
     <section>
       <div class="section-heading">
         <div>
-          <h2>Il tuo diario dei capitoli</h2>
+          <h2>Your chapter journal</h2>
           <p>
-            {{ readCount() }} capitoli letti{{
-              m.chapters ? " su " + m.chapters : ""
+            {{ readCount() }} chapters read{{
+              m.chapters ? " of " + m.chapters : ""
             }}.
             @if (!m.chapters) {
-              Il totale non è ancora noto.
+              The total is not known yet.
             }
           </p>
         </div>
@@ -106,7 +98,7 @@
       >
         <div class="chapter-form-head">
           <div>
-            <label for="chapter-number">Capitolo</label
+            <label for="chapter-number">Chapter</label
             ><input
               id="chapter-number"
               name="chapter"
@@ -127,17 +119,17 @@
               [disabled]="busy() || loading()"
               [(ngModel)]="read"
             />
-            Segna come letto</label
+            Mark as read</label
           >
           <div>
-            <label for="rating">Il tuo voto</label
+            <label for="rating">Your rating</label
             ><select
               id="rating"
               name="rating"
               [disabled]="busy() || loading()"
               [(ngModel)]="rating"
             >
-              <option [ngValue]="null">Nessun voto</option>
+              <option [ngValue]="null">No rating</option>
               <option [ngValue]="1">1 / 5</option>
               <option [ngValue]="2">2 / 5</option>
               <option [ngValue]="3">3 / 5</option>
@@ -146,7 +138,7 @@
             </select>
           </div>
         </div>
-        <label for="notes">Cosa ti ha lasciato questo capitolo?</label
+        <label for="notes">What did this chapter leave you with?</label
         ><textarea
           id="notes"
           name="notes"
@@ -154,10 +146,10 @@
           [(ngModel)]="notes"
           maxlength="5000"
           rows="3"
-          placeholder="Un pensiero, una scena, una teoria…"
+          placeholder="A thought, a scene, a theory…"
         ></textarea>
         <div class="form-footer">
-          <small>Le tue note e valutazioni restano private.</small>
+          <small>Your notes and ratings stay private.</small>
           @if (isSaved()) {
             <button
               type="button"
@@ -165,14 +157,14 @@
               [disabled]="busy() || loading()"
               (click)="deleteChapter()"
             >
-              Elimina capitolo
+              Delete chapter
             </button>
           }
           <button
             class="button primary"
             [disabled]="busy() || loading() || chapterForm.invalid"
           >
-            {{ busy() ? "Salvataggio…" : "Salva capitolo" }}
+            {{ busy() ? "Saving…" : "Save chapter" }}
           </button>
         </div>
       </form>
@@ -187,50 +179,48 @@
               [disabled]="busy() || loading()"
               (click)="edit(c)"
             >
-              <strong>Capitolo {{ c.chapter }}</strong
+              <strong>Chapter {{ c.chapter }}</strong
               ><span class="status" [class.is-read]="c.read">{{
-                c.read ? "Letto" : "Da leggere"
+                c.read ? "Read" : "Unread"
               }}</span
-              ><span>{{ c.rating ? c.rating + " / 5" : "Nessun voto" }}</span
-              ><span class="chapter-note">{{ c.notes || "Nessuna nota" }}</span
-              ><span>Modifica →</span>
+              ><span>{{ c.rating ? c.rating + " / 5" : "No rating" }}</span
+              ><span class="chapter-note">{{ c.notes || "No notes" }}</span
+              ><span>Edit →</span>
             </button>
           }
         </div>
       } @else {
-        <p class="muted">
-          Non hai ancora registrato capitoli per questo manga.
-        </p>
+        <p class="muted">You haven't logged any chapters for this manga yet.</p>
       }
     </section>
     <section class="add-list">
-      <h2>Aggiungi a una tua lista</h2>
+      <h2>Add to one of your lists</h2>
       @if (lists().length) {
         <form (ngSubmit)="addList()">
-          <label class="sr-only" for="select-list">Scegli una lista</label
+          <label class="sr-only" for="select-list">Choose a list</label
           ><select
             id="select-list"
             name="list"
             [(ngModel)]="selectedList"
             required
           >
-            <option value="">Scegli una lista</option>
+            <option value="">Choose a list</option>
             @for (list of lists(); track list.id) {
               <option [value]="list.id">
-                {{ list.name }} · {{ list.isPublic ? "Pubblica" : "Privata" }}
+                {{ list.name }} · {{ list.isPublic ? "Public" : "Private" }}
               </option>
             }</select
           ><button
             class="button secondary"
             [disabled]="!selectedList || busy() || loading()"
           >
-            Aggiungi
+            Add
           </button>
         </form>
       } @else {
         <p>
-          Raccogli le tue letture in una selezione personale.
-          <a routerLink="/lists">Crea la prima lista →</a>
+          Gather your reads into a personal collection.
+          <a routerLink="/lists">Create your first list →</a>
         </p>
       }
     </section>

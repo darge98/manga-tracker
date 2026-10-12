@@ -1,30 +1,30 @@
 <div class="page-heading">
-  <p class="eyebrow">TROVA LA TUA PROSSIMA STORIA</p>
+  <p class="eyebrow">FIND YOUR NEXT STORY</p>
   <h1>
     {{
       collection
         ? kind === "favorites"
-          ? "I tuoi preferiti."
-          : "Da leggere."
-        : "Lasciati incuriosire."
+          ? "Your favorites."
+          : "To read."
+        : "Get curious."
     }}
   </h1>
   <p>
     {{
       collection
-        ? "Una selezione tutta tua, pronta per il prossimo capitolo."
-        : "Cerca un titolo o parti dai manga più amati."
+        ? "A collection all your own, ready for the next chapter."
+        : "Search for a title or start with the most loved manga."
     }}
   </p>
 </div>
 @if (!collection) {
   <form class="search-form" (ngSubmit)="search()">
-    <label class="sr-only" for="manga-search">Titolo del manga</label
+    <label class="sr-only" for="manga-search">Manga title</label
     ><input
       id="manga-search"
       name="query"
       [(ngModel)]="query"
-      placeholder="Cerca un manga, ad esempio Berserk"
+      placeholder="Search manga, e.g. Berserk"
       autocomplete="off"
       aria-describedby="search-hint"
     /><button
@@ -32,32 +32,32 @@
       type="submit"
       [disabled]="loading() || tooShort()"
     >
-      Cerca
+      Search
     </button>
   </form>
   <small id="search-hint" class="search-hint" aria-live="polite">{{
-    tooShort() ? "Scrivi almeno 3 caratteri per cercare." : ""
+    tooShort() ? "Type at least 3 characters to search." : ""
   }}</small>
 }
 @if (error()) {
   <div class="notice error" role="alert">
-    {{ error() }} <button (click)="retry()">Riprova</button>
+    {{ error() }} <button (click)="retry()">Retry</button>
   </div>
 }
 <div class="results-heading">
   <h2>
     {{
       collection
-        ? "La tua selezione"
+        ? "Your collection"
         : lastQuery
-          ? "Risultati per “" + lastQuery + "”"
-          : "Popolari nel catalogo"
+          ? "Results for “" + lastQuery + "”"
+          : "Popular in the catalog"
     }}
   </h2>
-  <span>{{ items().length }} titoli{{ hasNext() ? " e altri" : "" }}</span>
+  <span>{{ items().length }} titles{{ hasNext() ? " and more" : "" }}</span>
 </div>
 @if (loading() && !items().length) {
-  <div class="loading" role="status">Stiamo cercando le storie…</div>
+  <div class="loading" role="status">Looking for stories…</div>
 }
 <div class="manga-grid">
   @for (manga of items(); track manga.id) {
@@ -67,27 +67,24 @@
 @if (!loading() && !items().length && !error()) {
   <div class="empty">
     <h3>
-      {{
-        collection ? "La tua lista è ancora vuota." : "Nessun manga trovato."
-      }}
+      {{ collection ? "This list is still empty." : "No manga found." }}
     </h3>
     <p>
       {{
         collection
-          ? "Apri un manga e aggiungilo alla tua biblioteca."
-          : "Prova
-    un titolo diverso o una parola più breve."
+          ? "Open a manga and add it to your library."
+          : "Try a different title or a shorter word."
       }}
     </p>
     @if (collection) {
-      <a class="button primary" routerLink="/explore">Esplora manga</a>
+      <a class="button primary" routerLink="/explore">Explore manga</a>
     }
   </div>
 }
 @if (hasNext()) {
   <div class="load-more">
     <button class="button secondary" (click)="more()" [disabled]="loading()">
-      {{ loading() ? "Caricamento…" : "Mostra altri manga" }}
+      {{ loading() ? "Loading…" : "Show more manga" }}
     </button>
   </div>
 }

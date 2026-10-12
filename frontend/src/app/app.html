@@ -1,4 +1,4 @@
-<a class="skip" href="#main">Vai al contenuto</a>
+<a class="skip" href="#main">Skip to content</a>
 <div class="shell">
   <aside class="sidebar">
     <a routerLink="/" class="brand"
@@ -6,65 +6,63 @@
         >.</span
       ></a
     >
-    <p class="nav-label">IL TUO SPAZIO</p>
-    <nav aria-label="Navigazione principale">
+    <p class="nav-label">YOUR SPACE</p>
+    <nav aria-label="Main navigation">
       <a
         routerLink="/"
         [routerLinkActiveOptions]="{ exact: true }"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        ><span aria-hidden="true">▦</span> Panoramica</a
+        ><span aria-hidden="true">▦</span> Overview</a
       ><a
         routerLink="/explore"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        ><span aria-hidden="true">⌕</span> Esplora manga</a
+        ><span aria-hidden="true">⌕</span> Explore manga</a
       ><a
         routerLink="/library/to-read"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        ><span aria-hidden="true">▤</span> Da leggere</a
+        ><span aria-hidden="true">▤</span> To read</a
       ><a
         routerLink="/library/favorites"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        ><span aria-hidden="true">♡</span> Preferiti</a
+        ><span aria-hidden="true">♡</span> Favorites</a
       ><a
         routerLink="/lists"
         routerLinkActive="active"
         ariaCurrentWhenActive="page"
-        ><span aria-hidden="true">≡</span> Le mie liste</a
+        ><span aria-hidden="true">≡</span> My lists</a
       >
     </nav>
     <div class="sidebar-note">
-      <span class="note-line"></span><strong>Una storia alla volta.</strong>
-      <p>
-        Tieni il segno, raccogli le tue impressioni e trova la prossima lettura.
-      </p>
+      <span class="note-line"></span><strong>One story at a time.</strong>
+      <p>Keep your place, collect your thoughts and find your next read.</p>
     </div>
     <div class="account">
       @if (api.user(); as user) {
         <div class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</div>
         <div>
           <strong>{{ user.username }}</strong
-          ><a class="text-button" routerLink="/account">Account e sicurezza</a
-          ><button class="text-button" (click)="logout()">
-            Esci dall’account
-          </button>
+          ><a class="text-button" routerLink="/account">Account and security</a
+          ><button class="text-button" (click)="logout()">Sign out</button>
         </div>
       } @else {
-        <a class="button primary" routerLink="/auth">Accedi / Registrati</a>
+        <a class="button primary" routerLink="/auth">Sign in / Sign up</a>
       }
     </div>
   </aside>
   <div class="workspace">
     <header class="topbar">
-      <span>La tua biblioteca, capitolo dopo capitolo.</span
+      <span>Your library, chapter by chapter.</span
       ><a routerLink="/explore" class="top-search"
-        >Cerca un manga <span aria-hidden="true">⌕</span></a
+        >Search manga <span aria-hidden="true">⌕</span></a
       >
     </header>
     <main id="main" tabindex="-1"><router-outlet /></main>
-    <footer>MangaTrack <span>Catalogo fornito da MyAnimeList.</span></footer>
+    <footer>
+      MangaTrack <span>Catalog data provided by MyAnimeList.</span>
+    </footer>
   </div>
 </div>

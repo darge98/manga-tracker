@@ -22,7 +22,7 @@ export class App {
       await this.api.logout();
       void this.router.navigateByUrl("/");
     } catch {
-      alert("Uscita non riuscita. Riprova.");
+      alert("Sign-out failed. Please try again.");
     }
   }
 }

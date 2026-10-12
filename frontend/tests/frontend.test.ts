@@ -15,7 +15,6 @@ import { Lists } from "../src/app/lists";
 import { Auth } from "../src/app/auth";
 import { Account } from "../src/app/account";
 import { requireUser } from "../src/app/app.routes";
-import { StatusPipe } from "../src/app/status.pipe";
 const manga = (id: number) => ({
   id,
   title: "Manga " + id,
@@ -41,7 +40,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 function fixture(type: any) {
   const params = new Subject<any>();
   const api = new Api();
-  api.user.set({ id: "1", username: "lettore", email: "a@example.org" });
+  api.user.set({ id: "1", username: "reader", email: "a@example.org" });
   const router = { navigateByUrl: async () => true };
   const route = { paramMap: params, snapshot: { data: {} } };
   const injector = createEnvironmentInjector(
@@ -63,16 +62,16 @@ test("session uses HttpOnly credentials and clears expired identity", async () =
     options = init;
     return new Response(
       JSON.stringify({
-        user: { id: "1", username: "lettore", email: "a@example.org" },
+        user: { id: "1", username: "reader", email: "a@example.org" },
       }),
       { status: 200 },
     );
   };
   await api.session();
   assert.equal(options.credentials, "include");
-  assert.equal(api.user()?.username, "lettore");
+  assert.equal(api.user()?.username, "reader");
   globalThis.fetch = async () =>
-    new Response(JSON.stringify({ error: "Accesso richiesto" }), {
+    new Response(JSON.stringify({ error: "Sign in required" }), {
       status: 401,
     });
   await api.session();
@@ -88,14 +87,14 @@ test("detail ignores old manga response when route changes and clears failures",
     p === "/manga/1" ? first.promise : second.promise) as any;
   f.params.next(convertToParamMap({ id: "1" }));
   f.params.next(convertToParamMap({ id: "2" }));
-  second.reject(new Error("Non disponibile"));
+  second.reject(new Error("Unavailable"));
   await tick();
   first.resolve({ manga: manga(1) });
   await tick();
   assert.equal(f.component.manga(), null);
   assert.equal(f.component.library().mangaId, 2);
   assert.equal(f.component.library().chapters.length, 0);
-  assert.equal(f.component.error(), "Non disponibile");
+  assert.equal(f.component.error(), "Unavailable");
   f.injector.destroy();
 });
 test("list navigation never keeps an old selection after access is denied", async () => {
@@ -106,7 +105,7 @@ test("list navigation never keeps an old selection after access is denied", asyn
         list: { id: "1", name: "Privata", isPublic: false },
         items: [manga(1)],
       };
-    throw new Error("Lista non trovata");
+    throw new Error("List not found");
   };
   f.params.next(convertToParamMap({ id: "1" }));
   await tick();
@@ -116,7 +115,7 @@ test("list navigation never keeps an old selection after access is denied", asyn
   assert.equal(f.component.items().length, 0);
   await tick();
   assert.equal(f.component.list(), null);
-  assert.equal(f.component.error(), "Lista non trovata");
+  assert.equal(f.component.error(), "List not found");
   f.injector.destroy();
 });
 test("chapter feedback supports unread decimal chapters independently of catalog count", async () => {
@@ -126,7 +125,7 @@ test("chapter feedback supports unread decimal chapters independently of catalog
   f.component.chapter = 12.5;
   f.component.read = false;
   f.component.rating = 4;
-  f.component.notes = "Una scena da ricordare";
+  f.component.notes = "A scene to remember";
   let payload: any;
   let path = "";
   f.api.request = async (p: string, method = "GET", body?: any) => {
@@ -148,7 +147,7 @@ test("chapter feedback supports unread decimal chapters independently of catalog
   assert.equal(path, "/library/1/chapters/12.5");
   assert.equal(payload.read, false);
   assert.equal(payload.rating, 4);
-  assert.equal(payload.notes, "Una scena da ricordare");
+  assert.equal(payload.notes, "A scene to remember");
   assert.equal(payload.manga, undefined);
   f.injector.destroy();
 });
@@ -169,7 +168,7 @@ test("concurrent startup session checks share one request", async () => {
   response.resolve(
     new Response(
       JSON.stringify({
-        user: { id: "1", username: "lettore", email: "a@example.org" },
+        user: { id: "1", username: "reader", email: "a@example.org" },
       }),
     ),
   );
@@ -180,7 +179,7 @@ test("concurrent startup session checks share one request", async () => {
 test("a private dashboard response received after logout cannot restore reading history", async () => {
   const pending = deferred();
   const api = new Api();
-  api.user.set({ id: "1", username: "lettore", email: "a@example.org" });
+  api.user.set({ id: "1", username: "reader", email: "a@example.org" });
   api.request = async () => pending.promise;
   const dashboard: any = Object.create(Dashboard.prototype);
   Object.assign(dashboard, {
@@ -211,7 +210,7 @@ test("a startup 401 received after login cannot clear the new identity", async (
   const session = api.session();
   api.setUser({ id: "2", username: "nuovo", email: "b@example.org" });
   pending.resolve(
-    new Response(JSON.stringify({ error: "Sessione scaduta" }), {
+    new Response(JSON.stringify({ error: "Session expired" }), {
       status: 401,
     }),
   );
@@ -271,7 +270,7 @@ test("removing a manga from one list cannot remove it from a newly opened list",
   f.api.request = async (p: string, method = "GET") => {
     if (method === "DELETE") return pending.promise;
     return {
-      list: { id: p.split("/").pop(), name: "Lista", isPublic: false },
+      list: { id: p.split("/").pop(), name: "List", isPublic: false },
       items: [manga(1)],
     };
   };
@@ -293,7 +292,7 @@ test("retrying a failed next search page preserves earlier results", async () =>
   let fail = true;
   f.api.request = async (p: string) => {
     if (p.endsWith("page=2")) {
-      if (fail) throw new Error("Catalogo temporaneamente non disponibile");
+      if (fail) throw new Error("Catalog temporarily unavailable");
       return { items: [manga(2)], page: 2, hasNextPage: false };
     }
     return { items: [manga(1)], page: 1, hasNextPage: true };
@@ -344,7 +343,7 @@ test("deleting a chapter calls DELETE and refreshes the diary", async () => {
   f.injector.destroy();
 });
 
-test("API errors are shown in Italian from their stable code", async () => {
+test("API errors are shown from their stable code", async () => {
   const original = globalThis.fetch;
   const api = new Api();
   globalThis.fetch = async () =>
@@ -356,20 +355,20 @@ test("API errors are shown in Italian from their stable code", async () => {
       { status: 409 },
     );
   await assert.rejects(api.request("/auth/register", "POST", {}), {
-    message: "Esiste già un account con questa email.",
+    message: "An account with this email already exists.",
   });
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ error: "Too many requests" }), {
       status: 429,
     });
   await assert.rejects(api.request("/manga"), {
-    message: "Troppe richieste. Riprova tra un minuto.",
+    message: "Too many requests. Please try again in a minute.",
   });
   globalThis.fetch = async () => {
     throw new TypeError("Failed to fetch");
   };
   await assert.rejects(api.request("/manga"), {
-    message: "Connessione al server non riuscita. Controlla la rete e riprova.",
+    message: "Could not reach the server. Check your connection and try again.",
   });
   globalThis.fetch = original;
 });
@@ -423,7 +422,7 @@ test("personal pages send anonymous visitors to sign-in and back", async () => {
     extras: { queryParams: { returnUrl: "/lists/abc" } },
   });
   assert.equal(sessionChecks, 1);
-  api.user.set({ id: "1", username: "lettore", email: "a@example.org" });
+  api.user.set({ id: "1", username: "reader", email: "a@example.org" });
   assert.equal(await run(), true);
   injector.destroy();
 });
@@ -463,13 +462,6 @@ test("sign-in only returns to paths inside the app", () => {
     assert.equal(returnUrlFor(unsafe), "/", unsafe);
 });
 
-test("publishing status is shown in Italian", () => {
-  const pipe = new StatusPipe();
-  assert.equal(pipe.transform("Publishing"), "In corso");
-  assert.equal(pipe.transform("Finished"), "Concluso");
-  assert.equal(pipe.transform("Something new"), "Something new");
-});
-
 test("account: password change checks confirmation and reports the result", async () => {
   const f = fixture(Account);
   const calls: string[] = [];
@@ -484,12 +476,12 @@ test("account: password change checks confirmation and reports the result", asyn
   f.component.confirmPassword = "different-password";
   await f.component.changePassword();
   assert.equal(calls.length, 0);
-  assert.equal(f.component.error(), "Le due password nuove non coincidono.");
+  assert.equal(f.component.error(), "The two new passwords do not match.");
 
   f.component.currentPassword = "wrong";
   f.component.confirmPassword = "new-password-1";
   await f.component.changePassword();
-  assert.equal(f.component.error(), "La password attuale non è corretta.");
+  assert.equal(f.component.error(), "Your current password is incorrect.");
   assert.equal(f.api.user()?.id, "1"); // a wrong password keeps the user signed in
 
   f.component.currentPassword = "old-password";
@@ -499,7 +491,7 @@ test("account: password change checks confirmation and reports the result", asyn
     'PUT /auth/password {"currentPassword":"old-password","newPassword":"new-password-1"}',
   );
   assert.equal(f.component.error(), "");
-  assert.match(f.component.message(), /Password aggiornata/);
+  assert.match(f.component.message(), /Password updated/);
   assert.equal(f.component.newPassword, "");
   f.injector.destroy();
 });

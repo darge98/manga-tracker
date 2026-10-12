@@ -38,7 +38,7 @@ export class Dashboard {
         this.recent.set(d.recent);
         if (d.catalogWarning)
           this.error.set(
-            "Catalogo momentaneamente non raggiungibile: la tua cronologia di lettura è comunque disponibile.",
+            "The catalog is temporarily unavailable. Your reading history is still here.",
           );
       } else {
         const d = await this.api.request<{ items: Manga[] }>("/manga/popular");

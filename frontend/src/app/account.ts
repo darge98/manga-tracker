@@ -24,7 +24,7 @@ export class Account {
     this.section.set("password");
     this.message.set("");
     if (this.newPassword !== this.confirmPassword) {
-      this.error.set("Le due password nuove non coincidono.");
+      this.error.set("The two new passwords do not match.");
       return;
     }
     const body = {
@@ -36,7 +36,7 @@ export class Account {
       if (!current()) return;
       this.currentPassword = this.newPassword = this.confirmPassword = "";
       this.message.set(
-        "Password aggiornata. Le sessioni aperte su altri dispositivi sono state chiuse.",
+        "Password updated. Sessions on other devices have been signed out.",
       );
     });
   }
@@ -46,7 +46,7 @@ export class Account {
     if (
       this.busy() ||
       !confirm(
-        "Eliminare definitivamente l'account? Diario, progressi e liste, anche quelle pubbliche, andranno persi. L'operazione non si può annullare.",
+        "Permanently delete your account? Your journal, progress and lists, including public ones, will be lost. This cannot be undone.",
       )
     )
       return;

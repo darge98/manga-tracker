@@ -1,12 +1,12 @@
 <div class="page-heading">
-  <p class="eyebrow">IL TUO ACCOUNT</p>
-  <h1>Account e sicurezza.</h1>
+  <p class="eyebrow">YOUR ACCOUNT</p>
+  <h1>Account and security.</h1>
   <p>{{ api.user()?.username }} · {{ api.user()?.email }}</p>
 </div>
 <div class="account-page">
   <form class="list-form" (ngSubmit)="changePassword()" #passwordForm="ngForm">
-    <h2>Cambia password</h2>
-    <label for="current-password">Password attuale</label
+    <h2>Change password</h2>
+    <label for="current-password">Current password</label
     ><input
       id="current-password"
       name="currentPassword"
@@ -14,7 +14,7 @@
       [(ngModel)]="currentPassword"
       required
       autocomplete="current-password"
-    /><label for="new-password">Nuova password</label
+    /><label for="new-password">New password</label
     ><input
       id="new-password"
       name="newPassword"
@@ -24,7 +24,7 @@
       minlength="10"
       maxlength="256"
       autocomplete="new-password"
-    /><label for="confirm-password">Ripeti la nuova password</label
+    /><label for="confirm-password">Repeat the new password</label
     ><input
       id="confirm-password"
       name="confirmPassword"
@@ -34,8 +34,7 @@
       autocomplete="new-password"
     />
     <small
-      >Almeno 10 caratteri. Gli altri dispositivi dovranno accedere di
-      nuovo.</small
+      >At least 10 characters. Other devices will need to sign in again.</small
     >
     @if (section() === "password") {
       @if (error()) {
@@ -50,7 +49,7 @@
         class="button primary"
         [disabled]="busy() || passwordForm.invalid"
       >
-        Aggiorna password
+        Update password
       </button>
     </div>
   </form>
@@ -60,10 +59,10 @@
     (ngSubmit)="deleteAccount()"
     #deleteForm="ngForm"
   >
-    <h2>Elimina account</h2>
+    <h2>Delete account</h2>
     <p>
-      Elimina definitivamente account, diario dei capitoli, preferiti e liste. I
-      link delle tue liste pubbliche smetteranno di funzionare.
+      Permanently deletes your account, chapter journal, favorites and lists.
+      Links to your public lists will stop working.
     </p>
     <label for="delete-password">Password</label
     ><input
@@ -82,7 +81,7 @@
         class="button secondary danger"
         [disabled]="busy() || deleteForm.invalid"
       >
-        Elimina definitivamente
+        Delete permanently
       </button>
     </div>
   </form>

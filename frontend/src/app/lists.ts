@@ -89,9 +89,7 @@ export class Lists {
       this.isPublic = false;
       await this.load();
       if (this.loadVersion === version + 1 && this.id === id)
-        this.message.set(
-          id ? "Lista aggiornata." : "La tua nuova lista è pronta.",
-        );
+        this.message.set(id ? "List updated." : "Your new list is ready.");
     });
   }
   async remove(m: Manga) {
@@ -100,15 +98,13 @@ export class Lists {
       await this.api.request("/lists/" + id + "/items/" + m.id, "DELETE");
       if (!current()) return;
       this.items.update((items) => items.filter((x) => x.id !== m.id));
-      this.message.set("Manga rimosso dalla lista.");
+      this.message.set("Manga removed from the list.");
     });
   }
   async deleteList() {
     if (
       this.busy() ||
-      !confirm(
-        "Eliminare questa lista? I tuoi progressi di lettura resteranno salvati.",
-      )
+      !confirm("Delete this list? Your reading progress will be kept.")
     )
       return;
     const id = this.id;
@@ -125,9 +121,9 @@ export class Lists {
     const link = window.location.origin + "/public/lists/" + this.id;
     try {
       await navigator.clipboard.writeText(link);
-      this.message.set("Link pubblico copiato.");
+      this.message.set("Public link copied.");
     } catch {
-      this.message.set("Link pubblico: " + link);
+      this.message.set("Public link: " + link);
     }
   }
 }
