@@ -24,6 +24,14 @@ func env(key, def string) string {
 	return def
 }
 
+// boolEnv reads "true"/"false", falling back to def when the variable is unset.
+func boolEnv(key string, def bool) bool {
+	if value := os.Getenv(key); value != "" {
+		return value == "true"
+	}
+	return def
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Print(err)
@@ -34,7 +42,7 @@ func main() {
 func run() error {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		return errors.New("DATABASE_URL is required (docker compose sets it)")
+		return errors.New("DATABASE_URL is required (Docker Compose and the Vercel Neon integration set it)")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -46,11 +54,19 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	go cleanSessions(ctx, store)
 
-	origins := strings.Split(env("ALLOWED_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080"), ",")
-	for i := range origins {
-		origins[i] = strings.TrimSpace(origins[i])
+	// On Vercel the platform terminates TLS and overwrites the client IP
+	// headers, so those settings default on; explicit variables still win.
+	onVercel := os.Getenv("VERCEL") != ""
+	defaultHost := "127.0.0.1"
+	if onVercel {
+		defaultHost = "0.0.0.0"
+	}
+	var origins []string
+	for _, origin := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins = append(origins, origin)
+		}
 	}
 	clientID := os.Getenv("MAL_CLIENT_ID")
 	if clientID == "" {
@@ -58,11 +74,11 @@ func run() error {
 	}
 	handler := api.New(store, provider.NewMAL(clientID), api.Config{
 		AllowedOrigins: origins,
-		SecureCookie:   os.Getenv("COOKIE_SECURE") == "true",
-		TrustProxy:     os.Getenv("TRUST_PROXY") == "true",
+		SecureCookie:   boolEnv("COOKIE_SECURE", onVercel && os.Getenv("VERCEL_ENV") != "development"),
+		TrustProxy:     boolEnv("TRUST_PROXY", onVercel),
 	})
 	server := &http.Server{
-		Addr:              net.JoinHostPort(env("HOST", "127.0.0.1"), env("PORT", "8080")),
+		Addr:              net.JoinHostPort(env("HOST", defaultHost), env("PORT", "8080")),
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       20 * time.Second,
@@ -91,23 +107,5 @@ func run() error {
 		}
 		log.Print("Manga Track API stopped")
 		return nil
-	}
-}
-
-// cleanSessions removes expired sessions at startup and then hourly.
-func cleanSessions(ctx context.Context, store *repository.Store) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		if n, err := store.DeleteExpiredSessions(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("session cleanup failed: %v", err)
-		} else if n > 0 {
-			log.Printf("removed %d expired sessions", n)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
 	}
 }

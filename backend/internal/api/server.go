@@ -12,6 +12,7 @@ import (
 	"manga-track/backend/internal/repository"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ import (
 const requestTimeout = 30 * time.Second
 
 type Config struct {
+	// AllowedOrigins lists extra cross-origin callers; same-origin requests
+	// are always allowed.
 	AllowedOrigins []string
 	SecureCookie   bool
 	// TrustProxy makes the rate limiters use the X-Real-IP header set by the
@@ -88,7 +91,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
 	origin := r.Header.Get("Origin")
-	if origin != "" && !slices.Contains(s.config.AllowedOrigins, origin) {
+	if origin != "" && !sameHost(origin, r.Host) && !slices.Contains(s.config.AllowedOrigins, origin) {
 		writeJSON(w, http.StatusForbidden, errorBody("origin_not_allowed", "Origin is not allowed"))
 		return
 	}
@@ -113,6 +116,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	s.mux.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// sameHost reports whether origin names the host the request was sent to.
+// The UI and the API share one origin in every deployment (Nginx in Docker,
+// Vercel rewrites, the Angular dev proxy), so these requests are same-origin
+// and need no ALLOWED_ORIGINS entry, whatever domain serves the app.
+func sameHost(origin, host string) bool {
+	u, err := url.Parse(origin)
+	return err == nil && u.Host != "" && strings.EqualFold(u.Host, host)
 }
 
 // notRouted turns the mux's plain-text 404/405 replies into JSON errors.

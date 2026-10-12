@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -42,7 +43,9 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if config.ConnConfig.ConnectTimeout == 0 {
 		config.ConnConfig.ConnectTimeout = 10 * time.Second
 	}
-	config.MaxConns = 10
+	if !strings.Contains(databaseURL, "pool_max_conns") {
+		config.MaxConns = 10
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, errors.New("unable to configure PostgreSQL connection")

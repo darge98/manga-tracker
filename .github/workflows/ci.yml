@@ -72,6 +72,8 @@ jobs:
     needs: [backend, frontend]
     steps:
       - uses: actions/checkout@v7
+      - name: Security headers match between Nginx and vercel.json
+        run: node scripts/check-security-headers.mjs
       - name: Validate Compose files
         run: |
           docker compose --env-file .env.example config --quiet

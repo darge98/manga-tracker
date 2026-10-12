@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log"
 	"manga-track/backend/internal/auth"
 	"manga-track/backend/internal/repository"
 	"net/http"
@@ -87,6 +88,11 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user repos
 	}
 	if err = s.store.CreateSession(r.Context(), auth.TokenHash(token), user.ID, time.Now().Add(sessionLifetime)); err != nil {
 		return err
+	}
+	// Serverless instances can't run a periodic job, so expired sessions are
+	// pruned here; the query uses the expiry index and is cheap.
+	if _, err = s.store.DeleteExpiredSessions(r.Context()); err != nil {
+		log.Printf("session cleanup failed: %v", err)
 	}
 	s.setCookie(w, token, int(sessionLifetime.Seconds()))
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})

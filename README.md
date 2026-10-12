@@ -17,6 +17,10 @@ Aprire `http://localhost:8080`. Compose avvia il frontend Angular servito da Ngi
 
 Backup, ripristino e HTTPS: vedere la [guida Docker](docs/docker.md).
 
+## Produzione
+
+L'app è pensata per Vercel (frontend e backend nello stesso progetto, con i Services definiti in `vercel.json`) e Neon come PostgreSQL. Passaggi e limiti del piano gratuito: [docs/vercel.md](docs/vercel.md).
+
 ### Sviluppo del frontend con hot reload
 
 Con lo stack avviato, `npm start` nella cartella `frontend` (Node 24, vedi `.nvmrc`) serve l'app su `http://localhost:4200` e inoltra `/api` allo stack Docker su `http://127.0.0.1:8080`.

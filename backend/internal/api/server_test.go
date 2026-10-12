@@ -418,3 +418,46 @@ func TestDeleteAccount(t *testing.T) {
 	}
 	register(t, s, "Alice") // the email can be used again
 }
+
+func TestSameOriginNeedsNoConfiguration(t *testing.T) {
+	t.Parallel()
+	s := New(testdb.Open(t), &testCatalog{}, Config{}) // no AllowedOrigins at all
+	call := func(target, origin string) int {
+		r := httptest.NewRequest("GET", target, nil)
+		r.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w.Code
+	}
+	// Production domain, preview URL and local Docker all work unconfigured.
+	for _, host := range []string{"https://manga.example.com", "https://manga-git-main-me.vercel.app", "http://127.0.0.1:8080"} {
+		if code := call(host+"/api/health", host); code != 200 {
+			t.Fatalf("same-origin request from %s rejected: %d", host, code)
+		}
+	}
+	if code := call("https://manga.example.com/api/health", "https://evil.example"); code != 403 {
+		t.Fatalf("cross-origin request accepted: %d", code)
+	}
+	if code := call("https://manga.example.com/api/health", "https://manga.example.com.evil.example"); code != 403 {
+		t.Fatalf("look-alike origin accepted: %d", code)
+	}
+}
+
+func TestLoginPrunesExpiredSessions(t *testing.T) {
+	t.Parallel()
+	store := testdb.Open(t)
+	s := newServer(store, &testCatalog{})
+	register(t, s, "Alice")
+	ctx := context.Background()
+	user, err := store.UserByEmail(ctx, "alice@example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CreateSession(ctx, auth.TokenHash("old"), user.ID, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	request(t, s, "POST", "auth/login", `{"email":"alice@example.test","password":"password-Alice"}`, nil, 200)
+	if n, err := store.DeleteExpiredSessions(ctx); err != nil || n != 0 {
+		t.Fatalf("login should have pruned the expired session (left %d, %v)", n, err)
+	}
+}

@@ -27,8 +27,9 @@ services:
       HOST: 0.0.0.0
       PORT: "8080"
       DATABASE_URL: postgres://${POSTGRES_USER:-manga_track}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-manga_track}?sslmode=disable
-      # localhost:4200 lets `npm start` (Angular dev server) use this stack's API.
-      ALLOWED_ORIGINS: ${DOCKER_ALLOWED_ORIGINS:-http://localhost:${APP_PORT:-8080},http://127.0.0.1:${APP_PORT:-8080},http://localhost:4200,http://127.0.0.1:4200}
+      # Same-origin requests (the UI served by Nginx or the Angular dev proxy)
+      # need no entry; list only extra cross-origin callers here.
+      ALLOWED_ORIGINS: ${DOCKER_ALLOWED_ORIGINS:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       MAL_CLIENT_ID: ${MAL_CLIENT_ID:-}
       # The API is reachable only through Nginx, which sets X-Real-IP.

@@ -26,3 +26,6 @@ backups/
 .DS_Store
 .idea/
 .vscode/
+
+# Vercel CLI (local builds and project link)
+.vercel/
